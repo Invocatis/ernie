@@ -1,0 +1,42 @@
+
+case principle_investigator(name):
+  ! database("principle_investigator", {name: name})
+
+case project(pi, name):
+  ! database("project", {principle_investigator: pi, name: name})
+
+case platform(name):
+  ! database("platform", {name: name})
+
+case experiment(project, platform, name):
+  ! database("experiment", {project: project, platform: platform })
+
+case load(experiment, instruction_file, data_file):
+  !! load(experiment, instruction_file, data_file)
+
+case test1() :
+  pi:
+    principle_investigator("test-pi")
+
+  project:
+    project(pi, project, "test-project")
+
+  platform:
+    platform[name: "test-platform"]
+
+  exp:
+    experiment(project, platform, "exp-name")
+
+  exp: testExperiment1()
+
+  load(exp, "instruction/file", "data/file")
+
+  load[experiment: exp,
+       instruction_file: "instruction/file",
+       data_file: "data/file"]
+
+  extract(exp, "instruction/file")
+
+? test1() -> failure
+? test2()
+? test3()

@@ -1,32 +1,21 @@
 (ns ernie.core
+  (:require
+    [ernie.semantics :as semantics])
+  (:import
+    [ernie.core Action Verify Clean])
   (:gen-class))
 
-(def environment
-  (atom {}))
-
-(defn- resolve-class
-  [class]
-  (cond
-    (string? class)
-    (Class/forName class)
-    (class? class) class))
-
-(defn all-methods
-  [classes]
-  (into [] (map #(.getMethods %) classes)))
-
-(defn add-class
-  [environment class]
-  (let [methods ]))
-
-(defn run-case
-  [classes [target params]]
-  (when-not (.invoke (verify target) (java.util.HashMap. params))
-    (action classes)))
-
-(defn handle-given
-  [method-group params])
-
+(defn cleanup
+  [{:keys [evaluated] :as state}]
+  (loop [evaluated (keys evaluated)]
+    (if (empty? evaluated)
+      state
+      (let [[[_ target params] & evaluted] evaluated
+            clean (get-in state [:methods target :clean])]
+        (when clean
+          (apply clean [params]))))))
 
 (defn run
-  [{:keys [given action]}])
+  [funcs expressions]
+  (let [[status state] (apply semantics/eval|expressions {:methods funcs} expressions)]
+    (cleanup state)))
