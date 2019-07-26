@@ -1,12 +1,26 @@
 (ns ernie.java
   (:require
+    [instaparse.core :as insta]
     [ernie.core :as core]
-    [ernie.parser :as parser]))
+    [ernie.parser :as parser])
+  (:import [ernie.core Action Clean Verify])
+  (:gen-class
+   :name ernie.core.Core
+   :prefix "-"
+   :state state
+   :init init
+   :methods [[addClass [Class] void]
+             [addClass [String] void]
+             [runScript [String] void]
+             [runFile [String] void]]
+   :constructors {[] []}))
 
-(def funcs
-  (atom {}))
+(defn -init
+  []
+  [[] (atom {})])
 
-(defn- resolve-class
+
+(defn resolve-class
   [class]
   (cond
     (string? class)
@@ -19,33 +33,34 @@
 
 (defn wrap-test-method
   [method]
-  (fn [params]
-    (try
-      (.invoke method [params])
-      (catch Exception e
-        [:failure]))))
+  (fn [state & params]
+    (.invoke method nil (to-array params))))
 
 (defn add-class
   [funcs class]
   (loop [methods (all-methods class)
          funcs funcs]
-    (if (empty? funcs)
-      funcs
+    (if (empty? methods)
+      (do (println funcs) funcs)
       (let [[method & methods] methods]
-        (condp #(.isAnnotationPresent %1 %2) method
-          Action (recur funcs (update-in methods [(wrap-test-method (.target (.getAnnotation method Action)))  :action]))
-          Verify (recur funcs (update-in methods [(wrap-test-method (.target (.getAnnotation method Verify)))  :verify]))
-          Clean  (recur funcs (update-in methods [(wrap-test-method (.target (.getAnnotation method Clean)))   :clean]))
+        (condp #(.isAnnotationPresent %2 %1) method
+          Action (recur methods (assoc-in funcs [(symbol (.value (.getAnnotation method Action))) :action] (wrap-test-method method)))
+          Verify (recur methods (assoc-in funcs [(symbol (.value (.getAnnotation method Verify))) :verify] (wrap-test-method method)))
+          Clean  (recur methods (assoc-in funcs [(symbol (.value (.getAnnotation method Clean)))  :clean]  (wrap-test-method method)))
           (recur (rest methods) funcs))))))
 
 (defn add-class!
-  [class]
-  (swap! funcs add-class (resolve-class class)))
+  [this class]
+  (swap! (.state this) add-class (resolve-class class)))
 
 (defn run-string
-  [str]
-  (core/run @funcs (paraser/parse str)))
+  [this str]
+  (core/run @(.state this) str))
 
 (defn run-file
-  [path]
-  (run-string (slurp path)))
+  [this path]
+  (run-string this (slurp path)))
+
+(def -addClass add-class!)
+(def -runScript run-string)
+(def -runFile run-file)

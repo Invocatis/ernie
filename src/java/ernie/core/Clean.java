@@ -9,6 +9,6 @@ import java.lang.annotation.ElementType;
 @Target(ElementType.METHOD)
 public @interface Clean {
 
-  String target();
+  String value() default "";
 
 }

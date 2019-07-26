@@ -5,11 +5,11 @@
 (def grammar
   (insta/parser
     "
-      root := (case | CALL expect)*
+      root := (case | call-oob)*
 
-      case := <'case'> symbol formals ASSIGN (bind | expect)* action?
+      case := <'case'> symbol formals ASSIGN (bind | call)* action?
 
-      expect := call expectation?
+      call-oob := CALL call expectation?
 
       call := symbol actuals
 
@@ -27,12 +27,12 @@
       name-value-params := ((name-value COMMA)* name-value)?
       ordered-params := ((value COMMA)* value)?
 
-      name-value := word ASSIGN value
+      name-value := symbol ASSIGN value
 
       <expectation> := RESULT (success | failure)
 
-      <success> := #'(?i)success'
-      <failure> := #'(?i)failure'
+      success := #'(?i)success'
+      failure := #'(?i)failure'
 
       symbol := word
 
@@ -46,8 +46,8 @@
       decimal := digit+ PERIOD digit+
 
       (* Simples *)
-      <character> := #'[a-zA-Z0-9-_]'
-      word := character+
+      <character> := #'[a-zA-Z-_]'
+      word := character (character | digit)*
       <string-char> := #'[^\"]'
 
 
@@ -88,10 +88,12 @@
    :name-value-params #(into {} %&)
    :name-value vector
    :value identity
+   :success (fn [& _] :success)
+   :failure (fn [& _] :failure)
    :integer (comp #(Long. %) str)
    :decimal (comp #(Double. %) str)
    :string str
-   :symbol symbol
+   :symbol keyword
    :word str
    :digit-str str})
 

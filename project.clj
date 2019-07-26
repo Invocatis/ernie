@@ -6,4 +6,5 @@
   :source-paths ["src/clojure"]
   :java-source-paths ["src/java"]
   :target-path "target/%s"
+  :aot [ernie.java]
   :profiles {:uberjar {:aot :all}})

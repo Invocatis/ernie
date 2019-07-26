@@ -29,11 +29,11 @@ case test1() :
 
   exp: testExperiment1()
 
-  load(exp, "instruction/file", "data/file")
-
   load[experiment: exp,
        instruction_file: "instruction/file",
        data_file: "data/file"]
+
+  ... 10 minutes ...
 
   extract(exp, "instruction/file")
 

@@ -1,21 +1,28 @@
 (ns ernie.core
   (:require
-    [ernie.semantics :as semantics])
+    [instaparse.core :as insta]
+    [ernie.parser :refer [parse]]
+    [ernie.semantics :as semantics]
+    [ernie.log :as log])
   (:import
-    [ernie.core Action Verify Clean])
-  (:gen-class))
-
-(defn cleanup
-  [{:keys [evaluated] :as state}]
-  (loop [evaluated (keys evaluated)]
-    (if (empty? evaluated)
-      state
-      (let [[[_ target params] & evaluted] evaluated
-            clean (get-in state [:methods target :clean])]
-        (when clean
-          (apply clean [params]))))))
+    [ernie.core Action Verify Clean]))
 
 (defn run
-  [funcs expressions]
-  (let [[status state] (apply semantics/eval|expressions {:methods funcs} expressions)]
-    (cleanup state)))
+  [funcs script]
+  (let [expressions (parse script)]
+    (def exps expressions)
+    (if (insta/failure? expressions)
+      (let [failures [{:error [:syntax expressions]}]
+            result [:failure {:failures failures}]]
+        (println (log/generate script failures))
+        result)
+      (let [state (apply semantics/eval|expressions
+                    [{:methods funcs :failures []
+                      :executed [] :environment {}
+                      :stack []}
+                     expressions])]
+        (let [failures (get-in state [:failures])]
+          (if-not (empty? failures)
+            (println (log/generate script failures))
+            (println "Success!")))
+        state))))
