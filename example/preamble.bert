@@ -1,42 +1,59 @@
 
-case principle_investigator(name):
-  ! database("principle_investigator", {name: name})
+!! host("url.to/machine/hosting/gobii")
 
+
+
+# This is a comment
+# this is also a comment
+# hopefully it doesn't read it
+
+# Create Principal
+# name: String
+case principal_investigator(name):
+  ! database("principal_investigator", {name: name})
+
+# Create Project
+# pi: principal Investigator
+# name: String
 case project(pi, name):
-  ! database("project", {principle_investigator: pi, name: name})
+  ! database("project", {principal_investigator: pi, name: name})
 
+# Create Platform
+# name: String
 case platform(name):
   ! database("platform", {name: name})
 
+# Create Experiment
+# project: Project
+# platform: Platform
+# name: String
 case experiment(project, platform, name):
   ! database("experiment", {project: project, platform: platform })
 
+# Execute load
+# experiment: Experiment
+# instruction_file: Path String
+# data_file: Path String
 case load(experiment, instruction_file, data_file):
-  !! load(experiment, instruction_file, data_file)
+  ! load(experiment, instruction_file, data_file)
 
-case test1() :
-  pi:
-    principle_investigator("test-pi")
-
-  project:
-    project(pi, project, "test-project")
-
-  platform:
-    platform[name: "test-platform"]
-
-  exp:
-    experiment(project, platform, "exp-name")
-
-  exp: testExperiment1()
+# Test1
+# Simple Test
+case test1():
+  pi:       principal_investigator("test-pi")
+  project:  project(pi, project, "test-project")
+  platform: platform[name: "test-platform"]
+  exp:      experiment(project, platform, "exp-name")
 
   load[experiment: exp,
        instruction_file: "instruction/file",
        data_file: "data/file"]
 
-  ... 10 minutes ...
+  extract(exp, "instruction/file", "output/file")
+  file_compare("output/file", "known/file")
 
-  extract(exp, "instruction/file")
 
+# Run Tests
 ? test1() -> failure
 ? test2()
-? test3()
+? test3() ... 10 minutes

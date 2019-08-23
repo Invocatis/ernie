@@ -11,17 +11,25 @@
   (str "Expected " (status-map expected) " but got " (status-map actual)))
 
 (defn undefined-error
-  [[_ target nme]]
-  (println nme)
+  [[_ target nme :as all]]
   (condp = target
     :case
     (str "Undefined Case: " (name nme))
     :action
     (str "Undefined Action: " (name nme))))
 
+(defn filter-stack-trace
+  [lines]
+  (take-while (fn [line] (not (re-find #"clojure|ernie" line))) lines))
+
 (defn exception-error
   [[_ exception]]
-  (with-out-str (.printStackTrace exception)))
+  (with-open [sw (java.io.StringWriter.)
+              pw (java.io.PrintWriter. sw)]
+    (.printStackTrace exception pw)
+    (let [stack-trace (clojure.string/split-lines (.toString sw))]
+      (apply str "Exception: " (first stack-trace) "\n\t"
+        (interpose "\n\t" (filter-stack-trace (rest stack-trace)))))))
 
 (defn syntax-error
   [[_ error]]
@@ -32,6 +40,15 @@
   [[_ target params]]
   (str "Verification failed for:" target " with arguments " params))
 
+(defn argument-error
+  [[_ type target params actuals]]
+  (let [params (map symbol params)]
+    (condp = type
+      :action
+      (str "Action argument mismatch for " (name target) params " given " actuals)
+      :case
+      (str "Case argument mismatch for " (name target) params " given " actuals))))
+
 (defn error-line
   [[error-type :as error]]
   (condp = error-type
@@ -39,7 +56,8 @@
     :undefined    (undefined-error error)
     :exception    (exception-error error)
     :syntax       (syntax-error error)
-    :verification (verification-error error)))
+    :verification (verification-error error)
+    :argument     (argument-error error)))
 
 (defn error-line-message
   [{start-line :instaparse.gll/start-line end-line :instaparse.gll/end-line
@@ -60,7 +78,7 @@
    {start-line :instaparse.gll/start-line end-line :instaparse.gll/end-line
     start-column :instaparse.gll/start-column end-column :instaparse.gll/end-column}]
   (let [lines (subvec file-lines (dec start-line) end-line)]
-    (->> lines (interpose "\n\t          | ") (apply str))))
+    (->> lines (interpose "\n\t            ") (apply str))))
 
 (defn stack-line
   [file-lines
@@ -73,10 +91,10 @@
   (loop [stack stack
          trace []]
     (if (empty? stack)
-      (apply str (interpose "\t" trace))
+      (apply str (interpose "\t\t" trace))
       (let [exp (peek stack)]
         (if (contains? (meta exp) :instaparse.gll/start-line)
-          (let [line (str (stack-line file-lines (meta exp)) ":"
+          (let [line (str "\t" (stack-line file-lines (meta exp)) ":"
                           (expression-line-numbers (meta exp)) "\n")]
             (if (= line (peek trace))
               (recur (pop stack) trace)
@@ -87,11 +105,10 @@
   [file-lines {:keys [expression error stack]}]
   (if (contains? (meta expression) :instaparse.gll/end-line)
     (str (error-line-message (meta expression)) "\n"
-         "\t" (error-line error) "\n"
-         "\tExpression: " (line-source file-lines (meta expression)) "\n"
+         "\t" (error-line error) "\n\n"
+         "\tExpression: " (line-source file-lines (meta expression)) "\n\n"
          "\tStack Trace:\n"
-         "\t" (stack-trace file-lines stack) "\n"
-         "\n\n")
+         "\t" (stack-trace file-lines stack))
     (error-line error)))
 
 (defn generate

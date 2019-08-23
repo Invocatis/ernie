@@ -28,7 +28,7 @@ public class DatabaseCase {
     db.deleteById(table, result.getId());
   }
 
-// --- Static Type ISmplementation ---
+// --- Static Type Implementation ---
 
   @Action("insert-project")
   public ProjectDTO insertProject(Map<String, Object> params) {

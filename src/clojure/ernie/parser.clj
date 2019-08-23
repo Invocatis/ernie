@@ -5,11 +5,11 @@
 (def grammar
   (insta/parser
     "
-      root := (case | call-oob)*
+      root := (case | CALL expect | action | comment)*
 
       case := <'case'> symbol formals ASSIGN (bind | call)* action?
 
-      call-oob := CALL call expectation?
+      expect := call (expectation | wait)*
 
       call := symbol actuals
 
@@ -19,7 +19,7 @@
 
       bind := symbol ASSIGN call
 
-      action := (INVOKE | FORCE-INVOKE) symbol params-by-order
+      action := INVOKE symbol params-by-order
 
       <params-by-name> := OB name-value-params CB
       <params-by-order> := OP ordered-params CP
@@ -30,6 +30,8 @@
       name-value := symbol ASSIGN value
 
       <expectation> := RESULT (success | failure)
+      wait := <'...'> (integer | decimal) time-unit
+      <time-unit> := word
 
       success := #'(?i)success'
       failure := #'(?i)failure'
@@ -37,6 +39,8 @@
       symbol := word
 
       value := map | list | string | integer | decimal | symbol
+
+      <comment> := <'#'#'[^\n]'*>
 
       (* Data Types *)
       map := OCB name-value-params CCB
@@ -50,15 +54,13 @@
       word := character (character | digit)*
       <string-char> := #'[^\"]'
 
-
       <digit> := #'[0-9]'
 
       (* Control Symbols *)
       <ASSIGN> := <':'>
       <RESULT> := <'->'>
 
-      INVOKE := <'!'>
-      FORCE-INVOKE := <'!!'>
+      <INVOKE> := <'!'>
       <CALL> := <'?'>
 
       <OP> := <'('>
@@ -80,8 +82,6 @@
 
 (def transform-map
   {:root vector
-   :INVOKE (fn [& _] false)
-   :FORCE-INVOKE (fn [& _] true)
    :formals vector
    :actuals identity
    :ordered-params vector

@@ -10,11 +10,9 @@
 (defn run
   [funcs script]
   (let [expressions (parse script)]
-    (def exps expressions)
     (if (insta/failure? expressions)
       (let [failures [{:error [:syntax expressions]}]
             result [:failure {:failures failures}]]
-        (println (log/generate script failures))
         result)
       (let [state (apply semantics/eval|expressions
                     [{:methods funcs :failures []

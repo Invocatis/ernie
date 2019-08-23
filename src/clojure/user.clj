@@ -13,25 +13,25 @@
          :clean  (fn [result i] (println "CLEAN sub" result i) (swap! state + i))}})
 
 (def -methods
-  {:add {:action (fn [x y] (+ x y))
+  {:add {:action (fn [x y] (throw (Exception. "asdf")) (+ x y))
          :verify (fn [result x y] (= result (+ x y)))}
    :sub {:action (fn [x y] (- x y))
          :verify (fn [result x y] (= result (- x y)) false)}})
 
 (def script
   "case add(x, y):
-     !! add(x, y)
+     ! add(x, y)
 
    case sub(x, y):
-     !! sub(x, y)
+     ! sub(x, y)
 
    case test():
      sub[x:10, y:10]
 
    case test1():
      add[x:1, y:2]
-     !! asdf()
+     ! asdf()
 
-   ? test() -> Failure")
+   ? test() -> Failure ... 10 minutes")
 
 (def s {:methods -methods :failures []})
