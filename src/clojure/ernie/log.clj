@@ -99,11 +99,7 @@
       (apply str (interpose "\t\t" trace))
       (let [exp (peek stack)]
         (if (contains? (meta exp) :instaparse.gll/start-line)
-<<<<<<< HEAD
           (let [line (str "\t" (stack-line file-lines (meta exp)) ": "
-=======
-          (let [line (str "\t" (stack-line file-lines (meta exp)) ":"
->>>>>>> d471a9112ec3ec9cc0f4aadb68a86acb61f1b5a4
                           (expression-line-numbers (meta exp)) "\n")]
             (if (= line (peek trace))
               (recur (pop stack) trace)

@@ -57,7 +57,6 @@
       <character> := #'[a-zA-Z-_]'
       word := character (character | digit)*
       <string-char> := #'[^\"]'
-
       <random-string-char> := #'[^~]'
 
       <digit> := #'[0-9]'
