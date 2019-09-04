@@ -39,6 +39,16 @@
 
 (def mem-base-obj (memoize base-obj))
 
+(def empty-parameters (make-array java.lang.Class 0))
+
+(defn base-obj
+  [class]
+  (.. class
+      (getConstructor empty-parameters)
+      (newInstance (object-array 0))))
+
+(def mem-base-obj (memoize base-obj))
+
 (defn wrap-test-method
   [method]
   (let [obj (mem-base-obj (.getDeclaringClass method))]

@@ -1,8 +1,11 @@
 
+<<<<<<< HEAD
 
 ! host("url.to/machine/hosting/gobii", "gadmn", "g0b11Admin")
 
 
+=======
+>>>>>>> d471a9112ec3ec9cc0f4aadb68a86acb61f1b5a4
 # This is a comment
 # this is also a comment
 # hopefully it doesn't read it
@@ -40,18 +43,29 @@ case load(experiment, instruction_file, data_file):
 # Test1
 # Simple Test
 case test1():
+<<<<<<< HEAD
   pi:       principal_investigator(~pi~)
   project:  project(pi, project, ~project~)
   platform: platform[name: "test-platform"]
   exp:      experiment(project, platform, ~experiment~)
+=======
+  pi:       principal_investigator("test-pi")
+  project:  project(pi, project, "test-project")
+  platform: platform[name: "test-platform"]
+  exp:      experiment(project, platform, "exp-name")
+>>>>>>> d471a9112ec3ec9cc0f4aadb68a86acb61f1b5a4
 
   load[experiment: exp,
        instruction_file: "instruction/file",
        data_file: "data/file"]
 
+<<<<<<< HEAD
   extract(exp, "instruction/file", "output/file")
   file_compare("output/file", "known/file")
 
+=======
+  extract(exp, "instruction/file")
+>>>>>>> d471a9112ec3ec9cc0f4aadb68a86acb61f1b5a4
 
 # Run Tests
 ? test1() -> failure
