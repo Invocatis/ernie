@@ -57,10 +57,8 @@
       <character> := #'[a-zA-Z-_]'
       word := character (character | digit)*
       <string-char> := #'[^\"]'
-<<<<<<< HEAD
+
       <random-string-char> := #'[^~]'
-=======
->>>>>>> d471a9112ec3ec9cc0f4aadb68a86acb61f1b5a4
 
       <digit> := #'[0-9]'
 
