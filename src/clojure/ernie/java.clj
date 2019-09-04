@@ -9,8 +9,7 @@
    :prefix "-"
    :state state
    :init init
-   :methods [[addClass [Class] void]
-             [addClass [String] void]
+   :methods [[loadComponents [Class] void]
              [runScript [String] void]
              [runFile [String] void]]
    :constructors {[] []}))
@@ -28,7 +27,7 @@
 
 (defn all-methods
   [class]
-  (into [] (.getMethods class)))
+  (into [] (.getDeclaredMethods class)))
 
 (def empty-parameters (make-array java.lang.Class 0))
 
@@ -49,7 +48,6 @@
         (catch java.lang.reflect.InvocationTargetException e
           (throw (.getCause e)))))))
 
-
 (defn add-class
   [funcs class]
   (loop [methods (all-methods class)
@@ -63,11 +61,33 @@
           Clean  (recur methods (assoc-in funcs [(keyword (.value (.getAnnotation method Clean)))  :clean]  (wrap-test-method method)))
           (recur (rest methods) funcs))))))
 
-(defn add-class!
+(defn- method-name-value-pair
+  [type m]
+  [(keyword (.. m (getAnnotation type) value)) (wrap-test-method m)])
+
+(defn all-methods
+  [class]
+  (.getMethods class))
+
+(defn- all-methods-with-annotation
+  [methods type]
+  (filterv #(.isAnnotationPresent % type) methods))
+
+(defn load-methods
+  [methods type]
+  (into {} (map (partial method-name-value-pair type)
+                (all-methods-with-annotation methods type))))
+
+(defn- -load
+  [class]
+  (let [methods (all-methods class)]
+    {:action (load-methods methods Action)
+     :verify (load-methods methods Verify)
+     :clean  (load-methods methods Clean)}))
+
+(defn load!
   [this class]
-  (if (.getConstructor class empty-parameters)
-    (swap! (.state this) add-class (resolve-class class))
-    (throw (Exception. (str class ": Class added must have empty constructor")))))
+  (swap! (.state this) merge (-load class)))
 
 (defn run-string
   [this str]
@@ -77,6 +97,6 @@
   [this path]
   (run-string this (slurp path)))
 
-(def -addClass add-class!)
 (def -runScript run-string)
 (def -runFile run-file)
+(def -loadComponents load!)

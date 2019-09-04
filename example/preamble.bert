@@ -1,6 +1,6 @@
 
-!! host("url.to/machine/hosting/gobii")
 
+! host("url.to/machine/hosting/gobii", "gadmn", "g0b11Admin")
 
 
 # This is a comment
@@ -40,10 +40,10 @@ case load(experiment, instruction_file, data_file):
 # Test1
 # Simple Test
 case test1():
-  pi:       principal_investigator("test-pi")
-  project:  project(pi, project, "test-project")
+  pi:       principal_investigator(~pi~)
+  project:  project(pi, project, ~project~)
   platform: platform[name: "test-platform"]
-  exp:      experiment(project, platform, "exp-name")
+  exp:      experiment(project, platform, ~experiment~)
 
   load[experiment: exp,
        instruction_file: "instruction/file",

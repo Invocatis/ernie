@@ -2,14 +2,16 @@
 
 (defn success?
   [any]
-  (and (seqable? any)
-       (= (first any) :success)))
+  (= (:status any) :success))
 
 (defn failure?
   [any]
-  (and (seqable? any)
-       (or (= (first any) :failure)
-           (= (first any) :error))))
+  (or (= (:status any) :failure)
+      (= (:status any) :error)))
+
+(defn error?
+  [any]
+  (= (:status any) :error))
 
 (defn remove-nils
   "remove pairs of key-value that has

@@ -5,9 +5,9 @@
 (def grammar
   (insta/parser
     "
-      root := (case | CALL expect | action | comment)*
+      root := (case | CALL (expect | call) | comment | INVOKE action)*
 
-      case := <'case'> symbol formals ASSIGN (bind | call)* action?
+      case := <'case'> symbol formals ASSIGN (bind | call)* action? value?
 
       expect := call (expectation | wait)*
 
@@ -15,19 +15,18 @@
 
       formals := OP ((symbol COMMA)* symbol)? CP
 
-      actuals := params-by-order | params-by-name
+      actuals := map | list
 
       bind := symbol ASSIGN call
 
-      action := INVOKE symbol params-by-order
-
-      <params-by-name> := OB name-value-params CB
-      <params-by-order> := OP ordered-params CP
+      action := INVOKE symbol list
 
       name-value-params := ((name-value COMMA)* name-value)?
       ordered-params := ((value COMMA)* value)?
 
-      name-value := symbol ASSIGN value
+      name-value := symbol ASSIGN (value | same)
+
+      same := <'%'>
 
       <expectation> := RESULT (success | failure)
       wait := <'...'> (integer | decimal) time-unit
@@ -38,14 +37,17 @@
 
       symbol := word
 
-      value := map | list | string | integer | decimal | symbol
+      value := map | list | string | integer | decimal | symbol | random-string
 
       <comment> := <'#'#'[^\n]'*>
 
       (* Data Types *)
       map := OCB name-value-params CCB
+           | OB name-value-params CB
       list := OB ordered-params CB
+            | OP ordered-params CP
       string := QUOTE string-char* QUOTE
+      random-string := <'~'> random-string-char* <'~'>
       integer := digit+
       decimal := digit+ PERIOD digit+
 
@@ -53,6 +55,7 @@
       <character> := #'[a-zA-Z-_]'
       word := character (character | digit)*
       <string-char> := #'[^\"]'
+      <random-string-char> := #'[^~]'
 
       <digit> := #'[0-9]'
 
@@ -80,19 +83,29 @@
     "
     :auto-whitespace :standard))
 
+(defn unique-string
+  [& [base]]
+  (str base (and base "_") (Long/toString (Long. (str (gensym nil) (.getTime (java.util.Date.)))) 36)))
+
+(defn name-value
+  [n v]
+  (if (= v [:same])
+    [n n]
+    [n v]))
+
 (def transform-map
   {:root vector
    :formals vector
    :actuals identity
    :ordered-params vector
    :name-value-params #(into {} %&)
-   :name-value vector
-   :value identity
+   :name-value name-value
    :success (fn [& _] :success)
    :failure (fn [& _] :failure)
    :integer (comp #(Long. %) str)
    :decimal (comp #(Double. %) str)
    :string str
+   :random-string (comp unique-string str)
    :symbol keyword
    :word str
    :digit-str str})

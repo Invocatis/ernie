@@ -1,6 +1,7 @@
 (ns ernie.log
   (:require
-    [clojure.string :as string]))
+    [clojure.string :as string]
+    [clojure.pprint :refer [pprint]]))
 
 (def status-map
   {:success "SUCCESS"
@@ -12,11 +13,7 @@
 
 (defn undefined-error
   [[_ target nme :as all]]
-  (condp = target
-    :case
-    (str "Undefined Case: " (name nme))
-    :action
-    (str "Undefined Action: " (name nme))))
+  (str "Undefined " (string/capitalize (name target)) ": " (name nme)))
 
 (defn filter-stack-trace
   [lines]
@@ -40,14 +37,17 @@
   [[_ target params]]
   (str "Verification failed for:" target " with arguments " params))
 
+(defn- unwrap-list
+  [l]
+  (->> l second (map second)))
+
 (defn argument-error
-  [[_ type target params actuals]]
-  (let [params (map symbol params)]
-    (condp = type
-      :action
-      (str "Action argument mismatch for " (name target) params " given " actuals)
-      :case
-      (str "Case argument mismatch for " (name target) params " given " actuals))))
+  [[_ type target params actuals :as error]]
+  (condp = type
+    :action
+    (str "Action argument mismatch for " (name target) params " given " actuals)
+    :case
+    (str "Case argument mismatch for " (name target) params " given " actuals)))
 
 (defn error-line
   [[error-type :as error]]
@@ -57,7 +57,8 @@
     :exception    (exception-error error)
     :syntax       (syntax-error error)
     :verification (verification-error error)
-    :argument     (argument-error error)))
+    :argument     (argument-error error)
+    (str error)))
 
 (defn error-line-message
   [{start-line :instaparse.gll/start-line end-line :instaparse.gll/end-line
@@ -94,7 +95,7 @@
       (apply str (interpose "\t\t" trace))
       (let [exp (peek stack)]
         (if (contains? (meta exp) :instaparse.gll/start-line)
-          (let [line (str "\t" (stack-line file-lines (meta exp)) ":"
+          (let [line (str "\t" (stack-line file-lines (meta exp)) ": "
                           (expression-line-numbers (meta exp)) "\n")]
             (if (= line (peek trace))
               (recur (pop stack) trace)
