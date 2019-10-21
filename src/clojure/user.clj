@@ -35,3 +35,8 @@
    ? test() -> Failure ... 10 minutes")
 
 (def s {:methods -methods :failures []})
+
+(def action-keys [:host :cv :cvGroup :platform :experiment :mapset :dataset :project :analysis :protocol :organization :vendorProtocol :job :load])
+
+(def actions
+  {:action (into {} (map (fn [k] [(name k) #(do (println (name k) %&) k)]) action-keys))})

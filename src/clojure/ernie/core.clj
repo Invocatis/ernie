@@ -13,11 +13,13 @@
   [namespace script]
   (let [expressions (parse script)]
     (if (insta/failure? expressions)
-      (println expressions)
+      {:status :error
+       :result expressions}
       (let [results (apply semantics/eval|expressions [namespace expressions])
             failures (->> results (filter failure?) (map :result))]
-        (pprint failures)
         (if-not (empty? failures)
-          (println (log/generate script failures))
-          (println "Success!"))
-        results))))
+          {:status :faiure
+           :result {:script script
+                    :failures failures}}
+          {:status :success
+           :result results})))))

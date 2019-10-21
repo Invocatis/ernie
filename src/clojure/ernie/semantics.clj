@@ -1,7 +1,12 @@
 (ns ernie.semantics
   (:require
     [ernie.util :refer :all]
-    [clojure.walk :as walk]))
+    [clojure.string :as string]
+    [clojure.java.io :as io]
+    [clojure.walk :as walk]
+    [clojure.pprint :refer [pprint]]))
+
+(def ^:dynamic executed)
 
 (declare eval|exp)
 
@@ -17,6 +22,20 @@
     (catch Exception e
       {:status :failure
        :result {:error [:verification target actuals e]}})))
+
+(defn cleanup
+  [namespace executed]
+  (loop [executed executed]
+    (if (empty? executed)
+      nil
+      (let [{:keys [target params result]} (peek executed)
+            clean (get-in namespace [:clean target])]
+        (when clean
+          (try
+            (apply clean result params)
+            (catch Exception e
+              (.printStackTrace e))))
+        (recur (pop executed))))))
 
 (defn invoke-action
   [namespace environment stack action actuals exp]
@@ -36,13 +55,19 @@
   (if-let [action (get-in namespace [:action target])]
     (let [ev-params (eval|exp namespace environment stack params)]
       (if (success? ev-params)
-        (let [inv-action (invoke-action namespace environment stack action (:result ev-params) exp)]
+        (let [inv-action (invoke-action namespace environment stack action (:result ev-params) exp)
+              details {:name action :args params}]
           (if (success? inv-action)
             (let [verification (verify namespace environment target (:result ev-params) (:result inv-action))]
+              (swap! executed conj {:result (:result inv-action)
+                                    :target target
+                                    :params params})
               (if (success? verification)
-                inv-action
-                verification))
-            inv-action))
+                (assoc inv-action :verification verification :details details)
+                {:status :failure
+                 :verification verification
+                 :details details}))
+            (assoc inv-action :details details)))
         ev-params))
     {:status :failure
      :result {:expression exp
@@ -78,37 +103,52 @@
      :result ()
      :namespace namespace
      :environment environment}
-    (let [{:keys [namespace environment]
-           :or {namespace namespace environment environment}
-           :as ev} (eval|exp namespace environment stack (first vals))]
+    (let [ev (eval|exp namespace environment stack (first vals))]
       (if (success? ev)
-        (let [ev-rest (eval|list* namespace environment stack (rest vals))]
+        (let [ev-rest (eval|list* namespace (merge environment (:environment ev))
+                                  stack (rest vals))]
           (if (success? ev-rest)
             (update ev-rest :result conj (:result ev))
             ev-rest))
         ev))))
 
+(defn eval|run
+  [namespace environment stack [_ body]]
+  (eval|exp namespace environment stack body))
+
 (defn eval|call
   [namespace environment stack [_ name actuals expected :as exp]]
-  (if-let [[_ name formals & body] (get-in namespace [:cases (keyword name)])]
-    (let [ev (eval|exp namespace environment stack actuals)]
-      (if (failure? ev)
-        ev
-        (let [ev-list (eval|list* namespace (actuals->map formals (:result ev)) stack body)]
-          (if (success? ev-list)
-            (-> ev-list
-              (update :result last)
-              (assoc :environment environment))
-            ev-list))))
-    {:status :error
-     :result {:expression exp
-              :error [:undefined :case name]
-              :stack stack}}))
+  (let [ev (eval|exp namespace environment stack actuals)]
+    (if (failure? ev)
+      ev
+      (if-let [[_ name formals body] (get-in namespace [:cases (keyword name) (count (:result ev))])]
+        (eval|exp namespace (actuals->map formals (:result ev)) stack body)
+        {:status :error
+         :details {:name name :args actuals}
+         :result {:expression exp
+                  :error [:undefined :case name]
+                  :stack stack}}))))
+
+(defn eval|body
+  [namespace environment stack [_ & body]]
+  (let [body (eval|list* namespace environment stack body)]
+    (if (success? body)
+      (-> body
+        (update :result last)
+        (assoc :environment environment))
+      body)))
+
+(defn eval|scope
+  [namespace environment stack [_ body]]
+  (with-bindings {#'executed (atom [])}
+    (let [result (eval|exp namespace environment stack body)]
+      (cleanup namespace @executed)
+      result)))
 
 (defn eval|case
   [namespace environment stack [_ name formals & body :as case]]
   {:status :success
-   :namespace (update namespace :cases assoc (keyword name) case)})
+   :namespace (update namespace :cases assoc-in [(keyword name) (count formals)] case)})
 
 (defn eval|list
   [namespace environment stack [_ vals]]
@@ -119,39 +159,68 @@
 
 (defn eval|map
   [namespace environment stack [_ m]]
-  (let [ks (eval|list* namespace environment stack (keys m))
+  (let [ks (keys m)
         vs (eval|list* namespace environment stack (vals m))]
-    (cond
-      (and (success? ks) (success? vs))
+    (if (success? vs)
       {:status :success
-       :result (zipmap (second ks) (second vs))}
-      (failure? ks)
-      ks
-      (failure? vs)
+       :result (zipmap ks (:result vs))}
       vs)))
 
-(defn eval|value
+(defn eval|symbol
   [namespace environment stack [_ v :as exp]]
-  (if (keyword? v)
+  (if (= v "nothing")
+    {:status :success
+     :result nil}
     (if-let [[_ v] (find environment v)]
       {:status :success
        :result v}
       {:status :error
        :result {:expression exp
-                :error [:undefined :value v]
-                :stack stack}})
-    {:status :success
-     :result v}))
+                :error [:undefined :symbol v]
+                :stack stack}})))
+
+(defn eval|value
+  [namespace environment stack [_ v :as exp]]
+  {:status :success
+   :result v})
+
+(defn eval|access
+  [namespace environment stack [_ target entity :as exp]]
+  (let [{:keys [result] :as ev-target} (eval|exp namespace environment stack target)]
+    (if (failure? ev-target)
+      ev-target
+      (if-not (map? result)
+        {:status :error
+         :result {:expression exp
+                  :error [:general (str "Cannot access entity of value type " (type result))]
+                  :stack stack}}
+        {:status :success
+         :result (get result entity)}))))
+
+(defn eval|metadata
+  [namespace environment stack [_ map]]
+  (let [{:keys [result] :as ev-map} (eval|exp namespace environment stack map)]
+    (if (success? ev-map)
+      {:status :success
+       :result result
+       :metadata result}
+      ev-map)))
 
 (def dispatch-map
-  {:case   eval|case
+  {:run    eval|run
+   :case   eval|case
+   :body   eval|body
+   :scope  eval|scope
    :call   eval|call
    :bind   eval|bind
    :expect eval|expect
    :action eval|action
    :map    eval|map
    :list   eval|list
-   :value  eval|value})
+   :symbol eval|symbol
+   :value  eval|value
+   :access eval|access
+   :metadata eval|metadata})
 
 (defn eval|exp
   [namespace environment stack [op & args :as exp]]
@@ -161,18 +230,6 @@
      :result {:error [:unexpected-operation op]
               :stack stack}}))
 
-(defn cleanup
-  [{:keys [executed] :as state}]
-  (loop [executed executed]
-    (if (empty? executed)
-      state
-      (let [[target params return] (peek executed)
-            clean (get-in state [:methods :clean target])]
-        (when clean
-          (apply clean return params))
-        (recur (pop executed)))))
-  (assoc state :executed []))
-
 (defn eval|expressions*
   [namespace environment stack exps]
   (if (empty? exps)
@@ -180,10 +237,14 @@
     (let [{:keys [namespace environment status result]
            :or {namespace namespace environment environment}
            :as ev} (eval|exp namespace environment stack (first exps))]
+      (cleanup namespace @executed)
+      (reset! executed [])
       (if (error? ev)
         (list ev)
         (conj (eval|expressions* namespace environment stack (rest exps)) ev)))))
 
 (defn eval|expressions
   [namespace exps]
-  (into [] (eval|expressions* namespace {} [] exps)))
+  (with-bindings {#'executed (atom [])}
+    (let [results (into [] (eval|expressions* namespace {} [] exps))]
+      results)))

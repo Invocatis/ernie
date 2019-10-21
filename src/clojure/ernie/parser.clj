@@ -1,30 +1,40 @@
 (ns ernie.parser
   (:require
+    [clojure.string :as string]
+    [clojure.java.io :as io]
     [instaparse.core :as insta]))
 
 (def grammar
   (insta/parser
     "
-      root := (case | CALL (expect | call) | comment | INVOKE action)*
+      root := (run | case | CALL (expect | call) | INVOKE action | METADATA metadata)*
 
-      case := <'case'> symbol formals ASSIGN (bind | call)* action? value?
+      <expression> := value | access | symbol | compound | call | action | metadata
 
-      expect := call (expectation | wait)*
+      run := <'run'> ASSIGN body
+      case := <'case'> name formals ASSIGN body
+      body := (bind | expression | scope)*
+      scope := SCOPE body SCOPE
 
-      call := symbol actuals
+      metadata := METADATA map
 
-      formals := OP ((symbol COMMA)* symbol)? CP
+      expect := call expectation?
+
+      call := name actuals
+
+      formals := OP ((name COMMA)* name)? CP
 
       actuals := map | list
 
-      bind := symbol ASSIGN call
+      bind := name ASSIGN expression
 
-      action := INVOKE symbol list
+      action := INVOKE name list
 
       name-value-params := ((name-value COMMA)* name-value)?
-      ordered-params := ((value COMMA)* value)?
+      ordered-params := ((expression COMMA)* expression)?
 
-      name-value := symbol ASSIGN (value | same)
+      name-value := name ASSIGN (expression | same)
+                  | symbol
 
       same := <'%'>
 
@@ -35,30 +45,27 @@
       success := #'(?i)success'
       failure := #'(?i)failure'
 
-      symbol := word
+      symbol := name
+      name := word
 
-      value := map | list | string | integer | decimal | symbol | random-string
+      access := (map | symbol | access) ACCESS name
 
-      <comment> := <'#'#'[^\n]'*>
-
-      <comment> := <'#'#'[^\n]'*>
+      <compound> := map | list
+      value := string | integer | decimal | nothing
 
       (* Data Types *)
       map := OCB name-value-params CCB
            | OB name-value-params CB
-      list := OB ordered-params CB
-            | OP ordered-params CP
+      list := OP ordered-params CP
       string := QUOTE string-char* QUOTE
-      random-string := <'~'> random-string-char* <'~'>
       integer := digit+
       decimal := digit+ PERIOD digit+
+      nothing := #'(?i)nothing'
 
       (* Simples *)
       <character> := #'[a-zA-Z-_]'
       word := character (character | digit)*
       <string-char> := #'[^\"]'
-      <random-string-char> := #'[^~]'
-
       <digit> := #'[0-9]'
 
       (* Control Symbols *)
@@ -82,18 +89,21 @@
       <COMMA> := <','>
 
       <QUOTE> := <'\"'>
+
+      <ACCESS> := <'.'>
+
+      <SCOPE> := <'**'>
+      <METADATA> := <'^'>
     "
     :auto-whitespace :standard))
 
-(defn unique-string
-  [& [base]]
-  (str base (and base "_") (Long/toString (Long. (str (gensym nil) (.getTime (java.util.Date.)))) 36)))
-
 (defn name-value
-  [n v]
-  (if (= v [:same])
-    [n n]
-    [n v]))
+  ([[_ n]] [n [:symbol n]])
+  ([n v]
+   (if (= v [:same])
+     [n [:symbol n]]
+     [n v])))
+
 
 (def transform-map
   {:root vector
@@ -107,9 +117,9 @@
    :integer (comp #(Long. %) str)
    :decimal (comp #(Double. %) str)
    :string str
-   :random-string (comp unique-string str)
-   :symbol keyword
    :word str
+   :name str
+   :nothing (fn [& _] nil)
    :digit-str str})
 
 (defn has-meta?
@@ -132,9 +142,19 @@
     insta/transform
     transform-map-with-meta))
 
+(defn trim-comments
+  [script]
+  (->> script
+    string/split-lines
+    (map #(string/split % #"#"))
+    (map first)
+    (remove empty?)
+    (interpose \newline)
+    (apply str)))
+
 (defn parse
   [str]
-  (let [parsed (grammar str)]
+  (let [parsed (grammar (trim-comments str))]
     (if (insta/failure? parsed)
       parsed
       (transform

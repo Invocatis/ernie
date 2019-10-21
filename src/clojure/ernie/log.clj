@@ -82,7 +82,7 @@
   [file-lines
    {start-line :instaparse.gll/start-line end-line :instaparse.gll/end-line
     start-column :instaparse.gll/start-column end-column :instaparse.gll/end-column}]
-  (let [lines (subvec file-lines (dec start-line) end-line)]
+  (let [lines (subvec file-lines start-line end-line)]
     (->> lines (interpose "\n\t            ") (apply str))))
 
 (defn stack-line
