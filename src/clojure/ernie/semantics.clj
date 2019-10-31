@@ -138,9 +138,9 @@
             err-baos (ByteArrayOutputStream.)
             sout (PrintStream. out-baos true "UTF-8")
             serr (PrintStream. err-baos true "UTF-8")]
-        ; (System/setOut sout)
-        ; (System/setErr serr)
-        ; (binding [*out* out, *err* err]
+        (System/setOut sout)
+        (System/setErr serr)
+        (binding [*out* out, *err* err])
         (let [{:keys [time value]}
               (time-and-value (eval-with-meta* namespace environment stack statements))]
           (System/setOut osout)
@@ -270,7 +270,7 @@
    :result (get (meta environment) sym)})
 
 (def dispatch-map
-  {:block           #(let [r (apply eval|block %&)] (println '--- r) r)
+  {:block           eval|block
    :case            eval|case
    :body            eval|body
    :call            eval|call
