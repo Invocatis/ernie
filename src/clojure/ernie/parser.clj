@@ -1,24 +1,27 @@
 (ns ernie.parser
   (:require
     [clojure.string :as string]
+    [clojure.walk :as walk]
     [clojure.java.io :as io]
     [instaparse.core :as insta]))
 
 (def grammar
   (insta/parser
     "
-      root := (run | case | CALL (expect | call) | INVOKE action | METADATA metadata)*
+      root := (block | case | CALL (expect | call) | INVOKE action)*
 
-      <expression> := value | access | symbol | compound | call | action | metadata
+      <expression> := value | access | symbol | compound | call | action | metadata-access
 
+      block := name SQUID metadata body
       run := <'run'> ASSIGN body
       case := <'case'> name formals ASSIGN body
-      body := (bind | expression | scope)*
-      scope := SCOPE body SCOPE
+      body := (bind | call | expect | action)* expression?
 
       metadata := METADATA map
 
-      expect := call expectation?
+      metadata-access := METADATA name
+
+      expect := call expectation
 
       call := name actuals
 
@@ -31,7 +34,6 @@
       action := INVOKE name list
 
       name-value-params := ((name-value COMMA)* name-value)?
-      ordered-params := ((expression COMMA)* expression)?
 
       name-value := name ASSIGN (expression | same)
                   | symbol
@@ -56,7 +58,7 @@
       (* Data Types *)
       map := OCB name-value-params CCB
            | OB name-value-params CB
-      list := OP ordered-params CP
+      list := OP ((expression COMMA)* expression)? CP
       string := QUOTE string-char* QUOTE
       integer := digit+
       decimal := digit+ PERIOD digit+
@@ -92,55 +94,43 @@
 
       <ACCESS> := <'.'>
 
-      <SCOPE> := <'**'>
       <METADATA> := <'^'>
+
+      <SQUID> := <'=>'>
     "
     :auto-whitespace :standard))
 
 (defn name-value
-  ([[_ n]] [n [:symbol n]])
+  ([[_ n]] [:pair n [:symbol n]])
   ([n v]
    (if (= v [:same])
-     [n [:symbol n]]
-     [n v])))
+     [:pair n [:symbol n]]
+     [:pair n v])))
 
 
 (def transform-map
   {:root vector
-   :formals vector
+   :formals (partial conj [:list])
    :actuals identity
    :ordered-params vector
-   :name-value-params #(into {} %&)
+   :name-value-params vector
    :name-value name-value
-   :success (fn [& _] :success)
-   :failure (fn [& _] :failure)
+   :map (partial into [:map])
+   :list (partial conj [:list])
+   :success (fn [& _] [:value :success])
+   :failure (fn [& _] [:value :failure])
    :integer (comp #(Long. %) str)
    :decimal (comp #(Double. %) str)
    :string str
    :word str
-   :name str
+   :name (fn [x] [:value x])
    :nothing (fn [& _] nil)
    :digit-str str})
-
-(defn has-meta?
-  [any]
-  (instance? clojure.lang.IObj any))
-
-(defn with-meta-wrapper
-  [f]
-  (fn [& args]
-    (let [result (apply f args)]
-      (if (has-meta? result)
-        (with-meta result (meta (first args)))
-        result))))
-
-(def transform-map-with-meta
-  (into {} (map (fn [[k v]] [k (with-meta-wrapper v)]) transform-map)))
 
 (def transform
   (partial
     insta/transform
-    transform-map-with-meta))
+    transform-map))
 
 (defn trim-comments
   [script]
@@ -152,12 +142,27 @@
     (interpose \newline)
     (apply str)))
 
+(defn sourcable?
+  [any]
+  (contains? (meta any) :instaparse.gll/start-index))
+
+(defn add-source*
+  [source any]
+  (with-meta any (merge (meta any) {:source (string/trim (apply subs source (insta/span any)))})))
+
+(defn add-source
+  [source result]
+  (walk/postwalk
+    (fn [any]
+      (if (sourcable? any)
+        (add-source* source any)
+        any))
+    result))
+
 (defn parse
   [str]
-  (let [parsed (grammar (trim-comments str))]
+  (let [source (trim-comments str)
+        parsed (grammar source)]
     (if (insta/failure? parsed)
       parsed
-      (transform
-        (insta/add-line-and-column-info-to-metadata
-         str
-         parsed)))))
+      (add-source source (transform parsed)))))

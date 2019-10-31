@@ -1,4 +1,4 @@
-package ernie.core.verify;
+package ernie.core;
 
 public class Verification {
 

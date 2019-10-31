@@ -1,4 +1,9 @@
-(ns ernie.util)
+(ns ernie.util
+  (:require
+    [clojure.string :as string]
+    [clojure.data.json :as json])
+  (:import
+    [com.fasterxml.jackson.databind ObjectMapper]))
 
 (defn success?
   [any]
@@ -62,3 +67,12 @@
     (bind-params-in-vector env params)
     :else
     (resolve-value env params)))
+
+(defn get-script-portion
+  [script exp]
+  (let [{start :instaparse.gll/start-index end :instaparse.gll/end-index} (meta exp)]
+    (string/trim (subs script start end))))
+
+(defn object->edn
+  [object]
+  (json/read-str (.writeValueAsString (ObjectMapper.) object) :key-fn keyword))

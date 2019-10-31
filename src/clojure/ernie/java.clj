@@ -1,30 +1,28 @@
 (ns ernie.java
   (:require
-    [clojure.data.json :as json]
+    [clojure.walk :refer [stringify-keys]]
+    [clojure.pprint :refer [pprint]]
     [instaparse.core :as insta]
     [ernie.core :as core]
     [ernie.parser :as parser]
+    [ernie.log :as log]
     [ernie.util :refer :all])
   (:import
-    [ernie.core Action Clean Verify]
-    [com.fasterxml.jackson.databind ObjectMapper])
+    [ernie.core Action Clean Verify])
   (:gen-class
    :name ernie.core.Ernie
    :prefix "-"
    :state state
    :init init
    :methods [[loadComponents [Class] void]
-             [runScript [String] void]
-             [runFile [String] void]]
+             [runScript [String] java.util.Map]
+             [runFile [String] java.util.Map]]
    :constructors {[] []}))
-
-(defn object->edn
-  [object]
-  (json/read-str (.writeValueAsString (ObjectMapper.) object) :key-fn keyword))
 
 (defn -init
   []
-  [[] (atom {})])
+  (let [state (atom {})]
+    [[] state]))
 
 (defn resolve-class
   [class]
@@ -143,9 +141,9 @@
 (defn run-string
   [this str]
   (let [results (core/run @(.state this) str)]
-    (when (and (seqable? results) (-> results last success?))
-      (reset! (.state this) (-> results last :namespace)))
-    nil))
+    (when-let [namespace (-> results :result last :namespace)]
+      (reset! (.state this) namespace))
+    (clojure.walk/postwalk (fn [any] (if (map? any) (dissoc any :namespace) any)) results)))
 
 (defn run-file
   [this path]

@@ -1,7 +1,9 @@
 (ns ernie.log
   (:require
+    [instaparse.core :as insta]
     [clojure.string :as string]
-    [clojure.pprint :refer [pprint]]))
+    [clojure.pprint :refer [pprint]]
+    [ernie.util :refer :all]))
 
 (def status-map
   {:success "SUCCESS"
@@ -79,11 +81,9 @@
     (str start-line "-" end-line)))
 
 (defn line-source
-  [file-lines
-   {start-line :instaparse.gll/start-line end-line :instaparse.gll/end-line
-    start-column :instaparse.gll/start-column end-column :instaparse.gll/end-column}]
-  (let [lines (subvec file-lines start-line end-line)]
-    (->> lines (interpose "\n\t            ") (apply str))))
+  [expression]
+  (let [{:keys [source] :or {source "SOURCE NOT FOUND"}} (meta expression)]
+    source))
 
 (defn stack-line
   [file-lines
@@ -111,15 +111,21 @@
   (if (contains? (meta expression) :instaparse.gll/end-line)
     (str (error-line-message (meta expression)) "\n"
          "\t" (error-line error) "\n\n"
-         "\tExpression: " (line-source file-lines (meta expression)) "\n\n"
+         "\tExpression: " (line-source expression) "\n\n"
          "\tStack Trace:\n"
          "\t" (stack-trace file-lines stack))
     (error-line error)))
 
 (defn generate
-  [file-contents failures]
-  (apply str
-    (count failures) " Failures Encountered\n\n"
-    (map
-      (partial log-line (string/split-lines file-contents))
-      failures)))
+  [file-contents results]
+  (when false
+    (let [successes (filter success? results)
+          failures (filter failure? results)
+          errors (filter error? results)]
+      (apply str
+        (count successes) " Successful Cases\n"
+        (count failures) " Failures Encountered\n"
+        (count errors) " Errors Encountered\n\n"
+        (map
+         (partial log-line (string/split-lines file-contents))
+         failures)))))
