@@ -52,15 +52,19 @@
   (element :testsuite (merge {:name (level->name (conj level {:attrs metadata})) :time time})))
 
 (defn something->log
-  [level {:keys [status expression] :as something}]
+  [level {:keys [status expression out err] :as something}]
   (element :testcase
     {:name (or (log/line-source expression) expression)
      :classname (level->name level)
-     :message (log/generate script something)}
+     :message (log/generate something)}
     (when (= status :error)
       (element :error {} ()))
     (when (= status :failure)
-      (element :failure {} ()))))
+      (element :failure {} ()))
+    (when out
+      (element :system-out {} out))
+    (when err
+      (element :system-err {} err))))
 
 (defn convert-list
   [suite0 level result]
@@ -80,7 +84,7 @@
 
 (defn convert-scenario
   [suite level {:keys [status result metadata time] :as scenario}]
-  (apply (partial convert* suite (conj level scenario) result)))
+  (convert* suite (conj level scenario) result))
 
 (defn convert-default
   [suite level {:keys [result] :as something}]

@@ -76,7 +76,7 @@
               (.printStackTrace e))))
         (recur (pop executed))))))
 
-(defn eval|action
+(defn eval|action-
   [namespace environment stack [target params :as exp]]
   (if-let [action (get-in namespace [:action target])]
     (let [inv-action (invoke-action namespace environment stack action params exp)
@@ -98,6 +98,11 @@
               :error [:undefined :action target]
               :stack stack}}))
 
+(defn eval|action
+  [namespace environment stack [target params :as exp]]
+  (let [{:keys [out err result]} (capture-out (eval|action- namespace environment stack exp))]
+    (assoc result :out out :err err)))
+
 (defn eval|expect
   [namespace environment stack [{:keys [status] :as exp} expected]]
   (if-not (= status expected)
@@ -107,50 +112,24 @@
               :stack stack}}
     exp))
 
-
 (defn eval|bind
   [namespace environment stack [sym exp]]
   {:status :success
    :environment (assoc environment sym exp)})
-
-(defmacro with-system-out-str [& body]
-  `(let [out-buffer# (ByteArrayOutputStream.)
-         original-out# System/out
-         tmp-out# (PrintStream. out-buffer# true "UTF-8")]
-     (try
-       (System/setOut tmp-out#)
-       ~@body
-       (finally
-         (System/setOut original-out#)))
-     (.toString out-buffer# "UTF-8")))
 
 (defn eval|block
   [namespace environment stack [[_ name] metadata [_ & statements]]]
   (let [ev-meta (eval|exp namespace environment stack metadata)]
     (if (failure? ev-meta)
       ev-meta
-      (let [{metadata :result :keys [environment]} ev-meta
-            out (new StringWriter)
-            err (new StringWriter)
-            osout System/out
-            oserr System/err
-            out-baos (ByteArrayOutputStream.)
-            err-baos (ByteArrayOutputStream.)
-            sout (PrintStream. out-baos true "UTF-8")
-            serr (PrintStream. err-baos true "UTF-8")]
-        (System/setOut sout)
-        (System/setErr serr)
-        (binding [*out* out, *err* err])
+      (let [{metadata :result :keys [environment]} ev-meta]
         (let [{:keys [time value]}
               (time-and-value (eval-with-meta* namespace environment stack statements))]
-          (System/setOut osout)
-          (System/setErr oserr)
           (assoc value
             :metadata metadata
             :time time
-            :type (keyword name)
-            :out (str out \newline (String. (.toByteArray out-baos)))
-            :err (str err \newline (String. (.toByteArray err-baos)))))))))
+            :type (keyword name)))))))
+
 
 (defn eval|call
   [namespace environment stack [name actuals :as exp]]

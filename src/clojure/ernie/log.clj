@@ -85,21 +85,15 @@
   (let [{:keys [source] :or {source "SOURCE NOT FOUND"}} (meta expression)]
     source))
 
-(defn stack-line
-  [file-lines
-   {start-line :instaparse.gll/start-line end-line :instaparse.gll/end-line
-    start-column :instaparse.gll/start-column end-column :instaparse.gll/end-column}]
-  (nth file-lines (dec start-line)))
-
 (defn stack-trace
-  [file-lines stack]
+  [stack]
   (loop [stack stack
          trace []]
     (if (empty? stack)
       (apply str (interpose "\t\t" trace))
       (let [exp (peek stack)]
         (if (contains? (meta exp) :instaparse.gll/start-line)
-          (let [line (str "\t" (stack-line file-lines (meta exp)) ": "
+          (let [line (str "\t" (line-source exp) ": "
                           (expression-line-numbers (meta exp)) "\n")]
             (if (= line (peek trace))
               (recur (pop stack) trace)
@@ -107,25 +101,24 @@
           (recur (pop stack) trace))))))
 
 (defn log-line
-  [file-lines {:keys [expression error stack]}]
+  [{:keys [expression error stack]}]
   (if (contains? (meta expression) :instaparse.gll/end-line)
     (str (error-line-message (meta expression)) "\n"
          "\t" (error-line error) "\n\n"
          "\tExpression: " (line-source expression) "\n\n"
          "\tStack Trace:\n"
-         "\t" (stack-trace file-lines stack))
+         "\t" (stack-trace stack))
     (error-line error)))
 
 (defn generate
-  [file-contents results]
-  (when false
-    (let [successes (filter success? results)
-          failures (filter failure? results)
-          errors (filter error? results)]
-      (apply str
-        (count successes) " Successful Cases\n"
-        (count failures) " Failures Encountered\n"
-        (count errors) " Errors Encountered\n\n"
-        (map
-         (partial log-line (string/split-lines file-contents))
-         failures)))))
+  [results]
+  (let [successes (filter success? results)
+        failures (filter failure? results)
+        errors (filter error? results)]
+    (apply str
+      (count successes) " Successful Cases\n"
+      (count failures) " Failures Encountered\n"
+      (count errors) " Errors Encountered\n\n"
+      (map
+       log-line
+       failures))))

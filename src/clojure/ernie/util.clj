@@ -1,9 +1,11 @@
 (ns ernie.util
   (:require
     [clojure.string :as string]
-    [clojure.data.json :as json])
+    [clojure.data.json :as json]
+    [ernie.util :refer :all])
   (:import
-    [com.fasterxml.jackson.databind ObjectMapper]))
+    [com.fasterxml.jackson.databind ObjectMapper]
+    [java.io StringWriter]))
 
 (defn success?
   [any]
@@ -76,3 +78,34 @@
 (defn object->edn
   [object]
   (json/read-str (.writeValueAsString (ObjectMapper.) object) :key-fn keyword))
+
+(defmacro printerr
+  [& args]
+  `(binding [*out* *err*]
+     (println ~@args)))
+
+(defmacro capture-out
+  [& body]
+  `(let [out# (new StringWriter)
+         err# (new StringWriter)
+         osout# System/out
+         oserr# System/err
+         out-baos# (ByteArrayOutputStream.)
+         err-baos# (ByteArrayOutputStream.)
+         sout# (PrintStream. out-baos# true "UTF-8")
+         serr# (PrintStream. err-baos# true "UTF-8")]
+     (System/setOut sout#)
+     (System/setErr serr#)
+     (binding [*out* out#, *err* err#]
+       (let [result# (do ~@body)
+             jout-str# (String. (.toByteArray out-baos#))
+             jerr-str# (String. (.toByteArray err-baos#))]
+         (System/setOut osout#)
+         (System/setErr oserr#)
+         (println (str out#))
+         (printerr (str err#))
+         (.println System/out jout-str#)
+         (.println System/err jerr-str#)
+         {:result result#
+          :out (str out# jout-str#)
+          :err (str err# jerr-str#)}))))
