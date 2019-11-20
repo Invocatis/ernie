@@ -5,17 +5,52 @@
     [clojure.set :as set]
     [clojure.java.io :as io]
     [clojure.walk :as walk]
-    [clojure.pprint :refer [pprint]])
+    [clojure.pprint :refer [pprint]]
+    [clojure.test :refer [testing is]]
+    [eftest.runner :as ef]
+    [com.rpl.defexception :refer [defexception]])
   (:import
-    [java.io ByteArrayOutputStream PrintStream StringWriter]
-    [ernie.core Verification])
-  (:refer-clojure :exclude [time]))
+    [java.io ByteArrayOutputStream PrintStream StringWriter])
+  (:refer-clojure :exclude [time namespace]))
+
+(defexception VerificationException)
+
+(defexception NoActionDefinedExcpetion)
+
+(defexception NoCaseDefinedException)
+
+(defexception UndefinedSymbolException)
 
 (def ^:dynamic executed)
 
 (def ^:dynamic script)
 
-(declare eval|exp eval* eval-with-meta*)
+(def ^:dynamic suite)
+
+(def ^:dynamic namespace)
+
+(def ^:dynamic environment)
+
+(def ^:dynamic suites)
+
+(declare eval|exp eval*)
+
+(defn ->suite
+  [name]
+  (let [ns-name (symbol (str "test." name))]
+    (or
+      (get @suites ns-name)
+      (let [_ (remove-ns ns-name)
+            ns (create-ns ns-name)]
+        (intern ns 'executed (atom {}))
+        (with-ns ns
+          (clojure.core/refer 'clojure.core :exclude '[namespace])
+          (require '[ernie.semantics :refer :all])
+          (require '[clojure.test :refer [deftest]])
+          (def _executed (atom []))
+          (def _result (atom [])))
+        (swap! suites assoc ns-name ns)
+        ns))))
 
 (defmacro time-and-value
   [expr]
@@ -24,144 +59,125 @@
      {:time (/ (double (- (. System (nanoTime)) start#)) 1000000.0)
       :value ret#}))
 
-(defn invoke-action
-  [namespace environment stack action actuals exp]
-  (try
-    (let [result (apply action actuals)]
-      {:status :success
-       :result result
-       :executed [action actuals]})
-    (catch Exception e
-      {:status :error
-       :result {:expression exp
-                :error [:exception e]
-                :stack stack}})))
-
 (defn verify
-  [namespace environment target actuals result]
-  (try
-    (if-let [verify-fn (get-in namespace [:verify target])]
-      (let [result (apply verify-fn result actuals)]
-        (cond
-          (boolean? result)
-          (if result
-             {:status :success
-              :verification true}
-             {:status :failure
-              :verifications false})
-          (isa? result Verification)
-          {:status (keyword (string/lower-case (.getStatus result)))
-            :verification result}
-          (map? result)
-          result
-          :else
-          (throw (Exception. (str "Verification: type of " (class result) " invalid")))))
-      {:status :success
-       :result :no-verification-defined})
-    (catch Exception e
-      {:status :failure
-       :result {:error [:verification target actuals e]}})))
+  [target actuals result]
+  (when-let [verify-fn (get-in @namespace [:verify target])]
+    (apply verify-fn result actuals)))
 
 (defn cleanup
   [namespace executed]
   (loop [executed executed]
     (if (empty? executed)
       nil
-      (let [{:keys [target params result]} (peek executed)
+      (let [{:keys [target args result]} (peek executed)
             clean (get-in namespace [:clean target])]
         (when clean
           (try
-            (apply clean result params)
+            (apply clean result args)
             (catch Exception e
               (.printStackTrace e))))
         (recur (pop executed))))))
 
-(defn eval|action-
-  [namespace environment stack [target params :as exp]]
-  (if-let [action (get-in namespace [:action target])]
-    (let [inv-action (invoke-action namespace environment stack action params exp)
-          details {:name action :args params}]
-      (if (success? inv-action)
-        (let [verification (verify namespace environment
-                                   target params (:result inv-action))]
-          (swap! executed conj {:result (:result inv-action)
-                                :target target
-                                :params params})
-          (if (success? verification)
-            (assoc inv-action :verification verification :details details)
-            {:status :failure
-             :verification verification
-             :details details}))
-        (assoc inv-action :details details)))
-    {:status :failure
-     :result {:expression exp
-              :error [:undefined :action target]
-              :stack stack}}))
+(defn invoke-action
+  [target action actuals]
+  (try
+    (let [result (apply action actuals)]
+      (swap! executed conj {:result result
+                            :target target
+                            :args actuals})
+      result)
+    (catch Exception e
+      (swap! executed conj {:result nil
+                            :target target
+                            :args actuals})
+      (throw (new Exception (format "ActionException %s : %s" (str target) (str actuals) e))))))
 
 (defn eval|action
-  [namespace environment stack [target params :as exp]]
-  (let [{:keys [out err result]} (capture-out (eval|action- namespace environment stack exp))]
-    (assoc result :out out :err err)))
+  [stack [target actuals :as exp]]
+  (if-let [action (get-in @namespace [:action target])]
+    (let [result (invoke-action target action actuals)]
+      (verify target actuals result)
+      result)
+    (throw (->NoActionDefinedExcpetion (str target)))))
 
 (defn eval|expect
-  [namespace environment stack [{:keys [status] :as exp} expected]]
-  (if-not (= status expected)
-    {:status :failure
-     :result {:expression exp
-              :error [:expected expected status]
-              :stack stack}}
-    exp))
+  [stack [exp expected]]
+  (if (= expected :success)
+    (eval|exp stack exp)
+    (try
+      (eval|exp stack exp)
+      (catch Error e))))
 
 (defn eval|bind
-  [namespace environment stack [sym exp]]
-  {:status :success
-   :environment (assoc environment sym exp)})
+  [stack [sym exp]]
+  (swap! environment assoc sym exp)
+  nil)
+
+(defn handle-suite
+  [stack metadata statements]
+  (binding [suite (->suite (symbol (str (get metadata "name" "NO_SUITE_NAME_DEFINED"))))
+            executed (var-get (ns-resolve suite '_executed))]
+    (eval* stack statements)))
+
+(defn ->test-fn
+  [ns env ex stack {:keys [name doc]} statements]
+  (fn []
+    (binding [namespace (atom ns)
+              environment (atom env)
+              executed (atom [])]
+      (try
+        (testing (str name \tab doc)
+          (is
+            (eval* stack statements)))
+        (finally
+          (cleanup @namespace @executed)))
+      true)))
+
+(defn handle-scenario
+  [stack metadata statements]
+  (let [test-name (symbol (str (get metadata "name" "NO_SCENARIO_NAME_DEFINED")))
+        test-fn (->test-fn @namespace @environment executed stack metadata statements)]
+    (intern suite (with-meta test-name {:test test-fn})
+      (fn [] (clojure.test/test-var (resolve test-name))))
+    (ef/run-tests
+      [(ns-resolve suite test-name)]
+      {:report #(swap! (var-get (ns-resolve suite '_result)) conj %)})))
 
 (defn eval|block
-  [namespace environment stack [[_ name] metadata [_ & statements]]]
-  (let [ev-meta (eval|exp namespace environment stack metadata)]
-    (if (failure? ev-meta)
-      ev-meta
-      (let [{metadata :result :keys [environment]} ev-meta]
-        (let [{:keys [time value]}
-              (time-and-value (eval-with-meta* namespace environment stack statements))]
-          (assoc value
-            :metadata metadata
-            :time time
-            :type (keyword name)))))))
-
+  [stack [[_ name] metadata [_ & statements]]]
+  (let [metadata (eval|exp stack metadata)]
+    (condp = (keyword name)
+      :suite    (handle-suite    stack metadata (vec statements))
+      :scenario (handle-scenario stack metadata (vec statements))
+      (binding [executed (atom [])]
+        (try
+          (eval* stack statements)
+          (finally
+            (cleanup @namespace @executed)))))))
 
 (defn eval|call
-  [namespace environment stack [name actuals :as exp]]
-  (if-let [f (get-in namespace [:cases (keyword name)])]
-    (apply f [actuals])
-    {:status :error
-     :details {:name name :args actuals}
-     :result {:expression exp
-              :error [:undefined :case name]
-              :stack stack}}))
+  [stack [name actuals :as exp]]
+  (if-let [f (get-in @namespace [:cases (keyword name)])]
+    (if (map? actuals)
+      (let [formals (-> f meta :formals)]
+        (apply f (into [] (map #(get actuals %) formals))))
+      (apply f actuals))
+    (throw (->NoCaseDefinedException name))))
 
 (defn eval|body
-  [namespace environment stack [& body]]
-  {:status :success
-   :result (last body)})
-
-(defn actuals->map
-  [formals actuals]
-  (cond
-    (map? actuals) actuals
-    :else (zipmap formals actuals)))
+  [stack [& body]]
+  (last body))
 
 (defn ->case
-  [namespace environment stack formals body]
-  ^{:arity #{(count formals)}}
-  (fn [args]
-    (let [actuals (actuals->map formals args)
-          environment (merge environment actuals)]
-      (eval|exp namespace environment stack body))))
+  [stack formals body]
+  ^{:arity #{(count formals)}
+    :formals formals}
+  (fn [& args]
+    (binding [environment (atom (merge @environment (zipmap formals args)))]
+      (eval|exp stack body))))
 
 (defn join-cases
-  [c0 c1]
+  [name c0 c1]
   (cond
     (nil? c0) c1
     (nil? c1) c0
@@ -170,83 +186,67 @@
           arity1 (:arity (meta c1))
           arity-union (set/union arity0 arity1)]
       ^{:arity arity-union}
-      (fn [args]
+      (fn [& args]
         (let [nargs (count args)]
           (cond
-            (contains? arity0 nargs) (apply c0 [args])
-            (contains? arity1 nargs) (apply c0 [args])
+            (contains? arity0 nargs) (apply c0 args)
+            (contains? arity1 nargs) (apply c1 args)
             :else
             (throw
               (new Exception
-                (format "Arity mismatch: Got %s but expected one of %s"
-                        nargs (apply str (interpose ", " (sort arity-union))))))))))))
+                (format "%s -- Arity mismatch: Got %s %s but expected one of [%s]"
+                        name nargs args
+                        (apply str (interpose ", " (sort arity-union))))))))))))
 
 (defn eval|case
-  [namespace environment stack [name formals body :as case]]
-  (let [{name :result} (eval|exp namespace environment stack name)
-        {formals :result} (eval|exp namespace environment stack formals)]
-    {:status :success
-     :namespace (update namespace :cases
-                        update-in [(keyword name)]
-                        join-cases
-                        (->case namespace environment stack formals body))}))
+  [stack [name formals body :as case]]
+  (let [name (eval|exp stack name)
+        formals (eval|exp stack formals)]
+    ; (swap! namespace update :cases
+    ;                  update-in [(keyword name)]
+    ;                  (partial join-cases name)
+    ;                  (->case stack formals body))
+    (swap! namespace update :cases assoc-in [(keyword name)] (->case stack formals body))
+    nil))
 
 (defn eval|list
-  [namespace environment stack [& vals]]
-  {:status :success
-   :result (into ^:external [] vals)})
+  [stack [& vals]]
+  (into [] vals))
 
 (defn eval|map
-  [namespace environment stack [& m]]
-  {:status :success
-   :result (into ^:external {} m)})
+  [stack [& m]]
+  (into {} m))
 
 (defn eval|pair
-  [namespace environment stack [x y]]
-  {:status :success
-   :result [x y]})
+  [stack [x y]]
+  [x y])
 
 (defn eval|symbol
-  [namespace environment stack [v :as exp]]
+  [stack [v :as exp]]
   (if (= v "nothing")
-    {:status :success
-     :result nil}
-    (if-let [[_ v] (or (find environment v)
-                       (find (get namespace :cases) (keyword v)))]
-      {:status :success
-       :result v}
-      {:status :error
-       :result {:expression exp
-                :error [:undefined :symbol v]
-                :stack stack}})))
+    nil
+    (if-let [[_ v] (or (find @environment v)
+                       (find (get @namespace :cases) (keyword v)))]
+      v
+      (throw (->UndefinedSymbolException v)))))
 
 (defn eval|value
-  [namespace environment stack [v :as exp]]
-  {:status :success
-   :result v})
+  [stack [v :as exp]]
+  v)
 
 (defn eval|access
-  [namespace environment stack [target entity :as exp]]
-  (if-not (map? target)
-    {:status :error
-     :result {:expression exp
-              :error [:general (str "Cannot access entity of value type "
-                                    (type target))]
-              :stack stack}}
-    {:status :success
-     :result (get target entity)}))
+  [stack [target entity :as exp]]
+  (when (map? target)
+    (get target entity)))
 
 (defn eval|metadata
-  [namespace environment stack [map]]
-  {:status :success
-   :result map
-   :environment (with-meta environment map)
-   :metadata map})
+  [stack [map]]
+  (swap! environment with-meta map)
+  map)
 
 (defn eval|metadata-access
-  [namespace environment stack [sym]]
-  {:status :success
-   :result (get (meta environment) sym)})
+  [stack [sym]]
+  (get (meta @environment) sym))
 
 (def dispatch-map
   {:block           eval|block
@@ -265,82 +265,53 @@
    :metadata        eval|metadata
    :metadata-access eval|metadata-access})
 
-(def atomic? #{:value :case :block})
-
-(def meta? #{:expected})
-
-(defn eval-with-meta*
- [namespace environment stack vals]
- (if (empty? vals)
-   {:status :success
-    :result ()
-    :namespace namespace
-    :environment environment}
-   (let [ev (eval|exp namespace environment stack (first vals))]
-     (if (success? ev)
-       (let [ev-rest (eval* namespace (or (:environment ev) environment)
-                             stack (rest vals))]
-         (if (success? ev-rest)
-           (update ev-rest :result conj ev)
-           ev-rest))
-       ev))))
-
+(def atomic? #{:expect :value :case :block})
 
 (defn eval*
-  [namespace environment stack vals]
-  (if (empty? vals)
-    {:status :success
-     :result ()
-     :namespace namespace
-     :environment environment}
-    (let [ev (eval|exp namespace environment stack (first vals))]
-      (if (success? ev)
-        (let [ev-rest (eval* namespace (or (:environment ev) environment)
-                              stack (rest vals))]
-          (if (success? ev-rest)
-            (update ev-rest :result conj (:result ev))
-            ev-rest))
-        ev))))
-
-(defn -exp
-  [namespace environment stack [op & args :as exp]]
-  (let [{args :result :as ev-args} (if-not (atomic? op)
-                                     (eval* namespace environment stack args)
-                                     {:status :success :result args})]
-    (if (failure? ev-args)
-      ev-args
-      (if-let [f (get dispatch-map op)]
-        (if (meta? op)
-          (apply f [namespace environment (conj stack exp) ev-args])
-          (apply f [namespace environment (conj stack exp) args]))
-        {:status :error
-         :result {:error [:unexpected-operation op]
-                  :stack stack}}))))
+  [stack vals]
+  (into [] (map (partial eval|exp stack) vals)))
 
 (defn eval|exp
-  [namespace environment stack [op :as exp]]
-  (let [{:keys [time value]} (time-and-value (-exp namespace environment stack exp))]
-      (assoc value
-       :expression exp
-       :time time)))
+  [stack [op & args :as exp]]
+  (let [result (if-not (atomic? op)
+                 (eval* stack args)
+                 args)]
+    (if-let [f (get dispatch-map op)]
+      (apply f [(conj stack exp) result])
+      (throw (new Exception (format "Unexpected Operation: %s" op))))))
 
 (defn eval|expressions*
-  [namespace environment stack exps]
+  [stack exps]
   (if (empty? exps)
     ()
-    (let [{:keys [namespace environment status result]
-           :or {namespace namespace environment environment}
-           :as ev} (eval|exp namespace environment stack (first exps))
-           exs @executed]
-      (reset! executed [])
-      (cleanup namespace exs)
-      (if (error? ev)
-        (list ev)
-        (conj (eval|expressions* namespace environment stack (rest exps))
-              (assoc ev :executed exs))))))
+    (try
+      (let [result (eval|exp stack (first exps))]
+        (eval|expressions* stack (rest exps)))
+      (finally
+        (cleanup @namespace @executed)
+        (reset! executed [])))))
+
+(defmacro bind-when
+  [condition binds & body]
+  `(if ~condition
+     (binding ~binds
+        ~@body)
+     (do ~@body)))
+
+(defmacro bind-unbound
+  [[b v :as bind] & body]
+  `(if (not (bound? (var ~b)))
+     (binding ~bind
+       ~@body)
+     (do ~@body)))
 
 (defn eval|expressions
-  [namespace exps]
-  (binding [executed (atom [])]
-    (let [results (into [] (eval|expressions* namespace {} [] exps))]
-      results)))
+  [ns suites' exps]
+  (bind-when (not (bound? (var suites))) [suites (atom suites')]
+    (bind-when (not (bound? (var suite))) [suite (->suite 'default)]
+      (binding [namespace (atom ns)
+                executed (atom [])
+                environment (atom {})]
+        (eval|expressions* [] exps)
+        {:namespace @namespace
+         :suites @suites}))))

@@ -84,9 +84,19 @@
   `(binding [*out* *err*]
      (println ~@args)))
 
+(defmacro with-ns
+  "Evaluates body in another namespace.  ns is either a namespace
+  object or a symbol.  This makes it possible to define functions in
+  namespaces other than the current one."
+  [ns & body]
+  `(binding [*ns* (the-ns ~ns)]
+     ~@body))
+
 (defmacro capture-out
   [& body]
-  `(let [out# (new StringWriter)
+  `(let [o# *out*
+         e# *err*
+         out# (new StringWriter)
          err# (new StringWriter)
          osout# System/out
          oserr# System/err
@@ -99,13 +109,20 @@
      (binding [*out* out#, *err* err#]
        (let [result# (do ~@body)
              jout-str# (String. (.toByteArray out-baos#))
-             jerr-str# (String. (.toByteArray err-baos#))]
+             jerr-str# (String. (.toByteArray err-baos#))
+             out-str# (str out#)
+             err-str# (str err#)]
          (System/setOut osout#)
          (System/setErr oserr#)
-         (println (str out#))
-         (printerr (str err#))
-         (.println System/out jout-str#)
-         (.println System/err jerr-str#)
+         (binding [*out* o#, *err* e#]
+           (when-not (empty? out-str#)
+             (println out-str#))
+           (when-not (empty? err-str#)
+             (printerr err-str#)))
+         (when-not (empty? jout-str#)
+           (.println System/out jout-str#))
+         (when-not jerr-str#
+           (.println System/err jerr-str#))
          {:result result#
           :out (str out# jout-str#)
           :err (str err# jerr-str#)}))))

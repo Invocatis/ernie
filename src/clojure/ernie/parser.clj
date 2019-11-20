@@ -12,10 +12,10 @@
 
       <expression> := value | access | symbol | compound | call | action | metadata-access
 
-      block := name SQUID metadata body
+      block := name SQUID metadata body END-SQUID
       run := <'run'> ASSIGN body
       case := <'case'> name formals ASSIGN body
-      body := (bind | call | expect | action)* expression?
+      body := (bind | call | expect | action | block)* expression?
 
       metadata := METADATA map
 
@@ -97,6 +97,7 @@
       <METADATA> := <'^'>
 
       <SQUID> := <'=>'>
+      <END-SQUID> := <'|>'>
     "
     :auto-whitespace :standard))
 

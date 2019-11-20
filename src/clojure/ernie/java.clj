@@ -16,12 +16,14 @@
    :init init
    :methods [[loadComponents [Class] void]
              [runScript [String] java.util.Map]
-             [runFile [String] java.util.Map]]
+             [runFile [String] java.util.Map]
+             [report [String] void]
+             [report [] void]]
    :constructors {[] []}))
 
 (defn -init
   []
-  (let [state (atom {})]
+  (let [state (atom {:namespace {} :suites {}})]
     [[] state]))
 
 (defn resolve-class
@@ -136,19 +138,26 @@
 
 (defn load!
   [this class]
-  (swap! (.state this) (partial merge-with merge) (-load class)))
+  (swap! (.state this) update :namespace (partial merge-with merge) (-load class)))
 
 (defn run-string
   [this str]
-  (let [results (core/run @(.state this) str)]
-    (when-let [namespace (-> results :result last :namespace)]
-      (reset! (.state this) namespace))
-    (clojure.walk/postwalk (fn [any] (if (map? any) (dissoc any :namespace) any)) results)))
+  (let [{:keys [namespace suites] :as result} (core/run @(.state this) str)]
+    (swap! (.state this) (partial merge-with merge) result)
+    nil))
 
 (defn run-file
   [this path]
-  (run-string this (slurp path)))
+  (run-string this (slurp path))
+  nil)
+
+(defn report
+  ([this]
+   (core/report (:suites @(.state this))))
+  ([this path]
+   (core/report (:suites @(.state this)) {:report-dir path})))
 
 (def -runScript run-string)
 (def -runFile run-file)
 (def -loadComponents load!)
+(def -report report)

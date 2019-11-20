@@ -2,8 +2,6 @@
 
 (def state (atom 0))
 
-(add-watch state :printer (fn [k r o n] (println o '-> n)))
-
 (def -methods
   {:add {:action (fn [i] (println "ACTION add" i) (swap! state + i))
          :verify (fn [result i] (println "VERIFY add" result i) (= @state result))
