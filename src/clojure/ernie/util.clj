@@ -7,6 +7,10 @@
     [com.fasterxml.jackson.databind ObjectMapper]
     [java.io StringWriter]))
 
+(defn stacktrace-string
+  [ex]
+  (with-out-str (clojure.stacktrace/print-stack-trace ex)))
+
 (defn success?
   [any]
   (= (:status any) :success))

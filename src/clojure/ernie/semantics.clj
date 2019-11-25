@@ -35,6 +35,15 @@
 
 (declare eval|exp eval*)
 
+(defn report!
+  [value]
+  (println value)
+  (swap! @(ns-resolve suite '_result) conj value))
+
+(defn update-summary!
+  [v f & args]
+  (swap! @(ns-resolve suite '_summary) update v #(apply f % args)))
+
 (defn ->suite
   [name]
   (let [ns-name (symbol (str "test." name))]
@@ -48,7 +57,9 @@
           (require '[ernie.semantics :refer :all])
           (require '[clojure.test :refer [deftest]])
           (def _executed (atom []))
-          (def _result (atom [])))
+          (def _result (atom []))
+          (def _summary (atom {:test 0 :pass 0 :fail 0 :error 0
+                               :type :summary :duration (System/nanoTime)})))
         (swap! suites assoc ns-name ns)
         ns))))
 
@@ -115,9 +126,12 @@
 
 (defn handle-suite
   [stack metadata statements]
-  (binding [suite (->suite (symbol (str (get metadata "name" "NO_SUITE_NAME_DEFINED"))))
+  (report! {:type :begin-test-ns :ns suite})
+  (binding [suite (->suite (symbol (str (get metadata "name" (name (gensym 'suite))))))
             executed (var-get (ns-resolve suite '_executed))]
-    (eval* stack statements)))
+    (eval* stack statements))
+  (report! {:type :end-test-ns :ns suite}))
+
 
 (defn ->test-fn
   [ns env ex stack {:keys [name doc]} statements]
@@ -135,13 +149,20 @@
 
 (defn handle-scenario
   [stack metadata statements]
-  (let [test-name (symbol (str (get metadata "name" "NO_SCENARIO_NAME_DEFINED")))
+  (let [test-name (symbol (str (get metadata "name" (name (gensym 'scenario)))))
         test-fn (->test-fn @namespace @environment executed stack metadata statements)]
     (intern suite (with-meta test-name {:test test-fn})
       (fn [] (clojure.test/test-var (resolve test-name))))
-    (ef/run-tests
-      [(ns-resolve suite test-name)]
-      {:report #(swap! (var-get (ns-resolve suite '_result)) conj %)})))
+    (report! {:type :begin-test-var :var (ns-resolve suite test-name)})
+    (update-summary! :test inc)
+    (try
+      (test-fn)
+      (report! {:type :pass :message nil})
+      (update-summary! :pass inc)
+      (catch java.lang.Throwable e
+        (update-summary! :fail inc)
+        (report! {:type :fail :message (stacktrace-string e)})))
+    (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
 (defn eval|block
   [stack [[_ name] metadata [_ & statements]]]
@@ -236,8 +257,9 @@
 
 (defn eval|access
   [stack [target entity :as exp]]
-  (when (map? target)
-    (get target entity)))
+  (cond
+    (map? target) (get target entity)
+    :else (eval|access stack [(object->edn target) (keyword entity)])))
 
 (defn eval|metadata
   [stack [map]]
@@ -286,7 +308,7 @@
     ()
     (try
       (let [result (eval|exp stack (first exps))]
-        (eval|expressions* stack (rest exps)))
+        (cons result (eval|expressions* stack (rest exps))))
       (finally
         (cleanup @namespace @executed)
         (reset! executed [])))))
@@ -305,13 +327,30 @@
        ~@body)
      (do ~@body)))
 
+(defn sub
+  [ns suites' exps]
+  (binding [namespace (atom ns)
+            executed (atom [])
+            environment (atom {})]
+    (let [result (eval|expressions* [] exps)]
+      {:namespace @namespace
+       :suites @suites
+       :result (last result)})))
+
+(defn root
+  [ns suites' exp]
+  (bind-when (not (bound? (var suites))) [suites (atom suites')]
+    (binding [suite (->suite 'default)]
+      (report! {:type :begin-test-run})
+      (report! {:type :begin-ns-run :ns suite})
+      (let [result (sub ns suites' exp)]
+        (report! {:type :end-ns-run :ns suite})
+        (update-summary! :duration #(- (System/nanoTime) %))
+        (report! @@(ns-resolve suite '_summary))
+        result))))
+
 (defn eval|expressions
   [ns suites' exps]
-  (bind-when (not (bound? (var suites))) [suites (atom suites')]
-    (bind-when (not (bound? (var suite))) [suite (->suite 'default)]
-      (binding [namespace (atom ns)
-                executed (atom [])
-                environment (atom {})]
-        (eval|expressions* [] exps)
-        {:namespace @namespace
-         :suites @suites}))))
+  (if (not (bound? (var suite)))
+    (root ns suites' exps)
+    (sub ns suites' exps)))

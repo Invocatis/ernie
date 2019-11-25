@@ -2,6 +2,7 @@
   (:require
     [instaparse.core :as insta]
     [eftest.runner :as ef]
+    [ernie.fns :as fns]
     [ernie.parser :refer [parse]]
     [ernie.semantics :as semantics]
     [ernie.log :as log]
@@ -15,7 +16,10 @@
     (if (insta/failure? expressions)
       (do (println expressions
            expressions))
-      (semantics/eval|expressions (merge-with merge default-ns namespace) suites expressions))))
+      (semantics/eval|expressions
+        (merge-with merge
+                    {:cases fns/namespace} namespace)
+        suites expressions))))
 
 (defn suite-report-file-name
   [base-dir suite]

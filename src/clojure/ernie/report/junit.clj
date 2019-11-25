@@ -1,12 +1,9 @@
 (ns ernie.report.junit
   "A test reporter that outputs JUnit-compatible XML."
   (:require
+    [ernie.util :refer :all]
     [clojure.data.xml :as xml]
     [clojure.string :as string]))
-
-(defmethod print-method java.lang.Exception
-  [v ^java.io.Writer w]
-  (.write w (with-out-str (.printStackTrace v))))
 
 (defn report-var-element
   [{:keys [type] :as el}]
@@ -49,12 +46,12 @@
 
 (defn ex->str
   [v]
-  (let [s (with-out-str (clojure.stacktrace/print-stack-trace v))]
-    (apply str
-      (take-while
-        (fn [s] (not (or (string/includes? s "ernie")
-                         (string/includes? s "clojure"))))
-        (string/split-lines s)))))
+  (let [s (stacktrace-string v)]
+    (apply str s)))
+      ; (take-while
+      ;   (fn [s] (not (or (string/includes? s "ernie")
+      ;                    (string/includes? s "clojure"))))
+      ;   (string/split-lines s)))))
 
 (defn report
   [results]

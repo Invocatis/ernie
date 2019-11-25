@@ -50,7 +50,7 @@
       symbol := name
       name := word
 
-      access := (map | symbol | access) ACCESS name
+      access := expression ACCESS name
 
       <compound> := map | list
       value := string | integer | decimal | nothing
@@ -65,8 +65,9 @@
       nothing := #'(?i)nothing'
 
       (* Simples *)
-      <character> := #'[a-zA-Z-_]'
-      word := character (character | digit)*
+      <character> := #'[a-zA-Z]'
+      word := word-char (word-char | digit)*
+      <word-char> := character | #'[+\\-*/]'
       <string-char> := #'[^\"]'
       <digit> := #'[0-9]'
 

@@ -1,4 +1,6 @@
-(ns ernie.default
+(ns ernie.fns
+  (:require
+    [ernie.util])
   (:refer-clojure :exclude [namespace]))
 
 (def boolean-fns
@@ -7,22 +9,29 @@
    :not not})
 
 (def comparison-fns
-  {:> >
-   :< <
-   :>= >=
-   :<= <=
-   := =
-   :!= not=})
+  {:less <
+   :greater >
+   :lessEq <=
+   :greaterEq >=
+   :eq =
+   :neq not=})
 
 (def string-fns
   {:str str
-   :format format})
+   :format format
+   :match (fn [re s] (re-matches (java.util.regex.Pattern/compile re) s))
+   :split (fn [re s] (clojure.string/split s (java.util.regex.Pattern/compile re)))
+   :last-index-of clojure.string/last-index-of
+   :substring subs})
 
 (def seq-fns
   {:map mapv
    :filter filterv
    :reduce reduce
-   :foreach (comp doall map)})
+   :foreach (comp doall map)
+   :first first
+   :last last
+   :nth nth})
 
 (def math-fns
   {:+ +
@@ -36,6 +45,12 @@
    :print print
    :read read})
 
+(def assert-fns
+  {:assert (fn [v & [msg]] (assert v msg))})
+
+(def object-fns
+  {:objectToEdn ernie.util/object->edn})
+
 (def namespace
   (merge
     boolean-fns
@@ -43,4 +58,6 @@
     string-fns
     seq-fns
     math-fns
-    io-fns))
+    io-fns
+    assert-fns
+    object-fns))

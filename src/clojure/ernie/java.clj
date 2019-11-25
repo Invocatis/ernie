@@ -15,8 +15,8 @@
    :state state
    :init init
    :methods [[loadComponents [Class] void]
-             [runScript [String] java.util.Map]
-             [runFile [String] java.util.Map]
+             [runScript [String] java.lang.Object]
+             [runFile [String] java.lang.Object]
              [report [String] void]
              [report [] void]]
    :constructors {[] []}))
@@ -142,9 +142,9 @@
 
 (defn run-string
   [this str]
-  (let [{:keys [namespace suites] :as result} (core/run @(.state this) str)]
-    (swap! (.state this) (partial merge-with merge) result)
-    nil))
+  (let [{:keys [namespace suites result]} (core/run @(.state this) str)]
+    (swap! (.state this) (partial merge-with merge) {:namespace namespace :suites suites})
+    result))
 
 (defn run-file
   [this path]
