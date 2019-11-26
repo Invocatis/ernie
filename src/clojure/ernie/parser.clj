@@ -59,7 +59,8 @@
       map := OCB name-value-params CCB
            | OB name-value-params CB
       list := OP ((expression COMMA)* expression)? CP
-      string := QUOTE string-char* QUOTE
+      string := DQUOTE string-char* DQUOTE
+              | SQUOTE string-char* SQUOTE
       integer := digit+
       decimal := digit+ PERIOD digit+
       nothing := #'(?i)nothing'
@@ -91,7 +92,8 @@
 
       <COMMA> := <','>
 
-      <QUOTE> := <'\"'>
+      <DQUOTE> := <'\"'>
+      <SQUOTE> := <'\\''>
 
       <ACCESS> := <'.'>
 
