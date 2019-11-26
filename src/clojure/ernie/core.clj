@@ -99,4 +99,4 @@
           report (results->report results)]
       (when filename
         (clojure.java.io/make-parents filename))
-      (spit (or filename *out*) report))))
+      (spit (or (str filename ".xml") *out*) report))))

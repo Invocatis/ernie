@@ -162,10 +162,13 @@
       (update-summary! :pass inc)
       (catch java.lang.Throwable e
         (update-summary! :fail inc)
-        (report! {:type :fail :message (take-while (complement
-                                                     #(or (string/includes? % "ernie")
-                                                          (string/includes? % "clojure"))) 
-                                                   (stacktrace-string e))})))
+        (report! {:type :fail :message (apply str
+                                         (interpose \newline
+                                           (take-while (complement
+                                                         #(or (string/includes? % "ernie")
+                                                              (string/includes? % "clojure")))
+                                                       (string/split-lines
+                                                         (stacktrace-string e)))))})))
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
 (defn eval|block
