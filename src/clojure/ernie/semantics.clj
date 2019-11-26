@@ -100,7 +100,7 @@
       (swap! executed conj {:result nil
                             :target target
                             :args actuals})
-      (throw (new Exception (format "ActionException %s : %s" (str target) (str actuals) e))))))
+      (throw (new Exception (format "ActionException %s : %s" (str target) (str actuals)) e)))))
 
 (defn eval|action
   [stack [target actuals :as exp]]

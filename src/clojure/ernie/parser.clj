@@ -59,8 +59,8 @@
       map := OCB name-value-params CCB
            | OB name-value-params CB
       list := OP ((expression COMMA)* expression)? CP
-      string := DQUOTE string-char* DQUOTE
-              | SQUOTE string-char* SQUOTE
+      string := SQUOTE squote-string-char* SQUOTE
+              | DQUOTE dquote-string-char* DQUOTE
       integer := digit+
       decimal := digit+ PERIOD digit+
       nothing := #'(?i)nothing'
@@ -69,7 +69,8 @@
       <character> := #'[a-zA-Z]'
       word := word-char (word-char | digit)*
       <word-char> := character | #'[+\\-*/]'
-      <string-char> := #'[^\"]'
+      <squote-string-char> := #'[^\\']'
+      <dquote-string-char> := #'[^\"]'
       <digit> := #'[0-9]'
 
       (* Control Symbols *)
