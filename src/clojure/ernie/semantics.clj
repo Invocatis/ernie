@@ -147,11 +147,20 @@
           (cleanup @namespace @executed)))
       true)))
 
+(defn failure-message
+  [e]
+  (apply str
+    (interpose \newline
+      (take-while (complement
+                    #(or (string/includes? % "ernie")
+                         (string/includes? % "clojure")))
+                  (string/split-lines
+                    (stacktrace-string e))))))
+
 (defn handle-scenario
-  [stack metadata statements]
+  [exp stack metadata statements]
   (let [test-name (symbol (str (get metadata "name" (name (gensym 'scenario)))))
         test-fn (->test-fn @namespace @environment executed stack metadata statements)]
-    (def t test-fn)
     (intern suite (with-meta test-name {:test test-fn})
       (fn [] (clojure.test/test-var (resolve test-name))))
     (report! {:type :begin-test-var :var (ns-resolve suite test-name)})
@@ -162,21 +171,16 @@
       (update-summary! :pass inc)
       (catch java.lang.Throwable e
         (update-summary! :fail inc)
-        (report! {:type :fail :message (apply str
-                                         (interpose \newline
-                                           (take-while (complement
-                                                         #(or (string/includes? % "ernie")
-                                                              (string/includes? % "clojure")))
-                                                       (string/split-lines
-                                                         (stacktrace-string e)))))})))
+        (report! {:type :fail :message (failure-message e)
+                  :line (log/line-source exp)})))
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
 (defn eval|block
-  [stack [[_ name] metadata [_ & statements]]]
+  [stack [[_ name] metadata [_ & statements] :as exp]]
   (let [metadata (eval|exp stack metadata)]
     (condp = (keyword name)
       :suite    (handle-suite    stack metadata (vec statements))
-      :scenario (handle-scenario stack metadata (vec statements))
+      :scenario (handle-scenario exp stack metadata (vec statements))
       (binding [executed (atom [])]
         (try
           (eval* stack statements)

@@ -61,32 +61,6 @@
                           (recur results joined count
                                  current-ns current-var summary))))))
 
-(defn denormalize-var
-  [[var result]]
-  [{:type :begin-test-var :var var}
-   result
-   {:type :end-test-var :var var}])
-
-(defn denormalize-ns
-  [[ns vars]]
-  (conj
-    (reduce into
-            [{:type :begin-test-ns :ns ns}]
-            (map denormalize-var vars))
-    {:type :end-test-ns :ns ns}))
-
-(defn denormalize-results
-  [normed]
-  (conj
-    (reduce into
-            [{:type :begin-test-run :count (-> normed meta :count)}]
-            (map denormalize-ns normed))
-    (-> normed meta :summary (assoc :type :summary))))
-
-(defn defunk-results
-  [results]
-  (-> results normalize-results denormalize-results))
-
 (defn results->report
   [results]
   (junit/report results))
