@@ -37,7 +37,6 @@
 
 (defn report!
   [value]
-  (println value)
   (swap! @(ns-resolve suite '_result) conj value))
 
 (defn update-summary!
@@ -126,11 +125,12 @@
 
 (defn handle-suite
   [stack metadata statements]
-  (report! {:type :begin-test-ns :ns suite})
   (binding [suite (->suite (symbol (str (get metadata "name" (name (gensym 'suite))))))
             executed (var-get (ns-resolve suite '_executed))]
-    (eval* stack statements))
-  (report! {:type :end-test-ns :ns suite}))
+    (report! {:type :begin-test-run})
+    (report! {:type :begin-test-ns :ns suite})
+    (eval* stack statements)
+    (report! {:type :end-test-ns :ns suite})))
 
 
 (defn ->test-fn
@@ -140,9 +140,9 @@
               environment (atom env)
               executed (atom [])]
       (try
-        (testing (str name \tab doc)
-          (is
-            (eval* stack statements)))
+        (eval* stack statements)
+        (catch java.lang.Throwable e
+          (throw e))
         (finally
           (cleanup @namespace @executed)))
       true)))
@@ -151,6 +151,7 @@
   [stack metadata statements]
   (let [test-name (symbol (str (get metadata "name" (name (gensym 'scenario)))))
         test-fn (->test-fn @namespace @environment executed stack metadata statements)]
+    (def t test-fn)
     (intern suite (with-meta test-name {:test test-fn})
       (fn [] (clojure.test/test-var (resolve test-name))))
     (report! {:type :begin-test-var :var (ns-resolve suite test-name)})
@@ -161,7 +162,10 @@
       (update-summary! :pass inc)
       (catch java.lang.Throwable e
         (update-summary! :fail inc)
-        (report! {:type :fail :message (stacktrace-string e)})))
+        (report! {:type :fail :message (take-while (complement
+                                                     #(or (string/includes? % "ernie")
+                                                          (string/includes? % "clojure"))) 
+                                                   (stacktrace-string e))})))
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
 (defn eval|block
@@ -173,6 +177,8 @@
       (binding [executed (atom [])]
         (try
           (eval* stack statements)
+          (catch java.lang.Throwable e
+            (throw e))
           (finally
             (cleanup @namespace @executed)))))))
 
@@ -342,7 +348,7 @@
   (bind-when (not (bound? (var suites))) [suites (atom suites')]
     (binding [suite (->suite 'default)]
       (report! {:type :begin-test-run})
-      (report! {:type :begin-ns-run :ns suite})
+      (report! {:type :begin-test-ns :ns suite})
       (let [result (sub ns suites' exp)]
         (report! {:type :end-ns-run :ns suite})
         (update-summary! :duration #(- (System/nanoTime) %))

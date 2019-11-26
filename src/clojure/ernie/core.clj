@@ -39,7 +39,7 @@
       (let [[{:keys [type] :as result} & results] results]
         (condp = type
           :begin-test-run (recur results joined
-                                 (+ count (:count result))
+                                 count; (+ count (:count result))
                                  current-ns current-var summary)
           :begin-test-ns  (recur results (update joined (:ns result) #(or % {}))
                                  count (:ns result) current-var summary)
@@ -54,7 +54,7 @@
                                  (assoc-in joined [current-ns current-var]
                                            result)
                                  count current-ns current-var summary)
-          :failure        (recur results
+          :fail           (recur results
                                  (assoc-in joined [current-ns current-var]
                                            result)
                                  count current-ns current-var summary)

@@ -7,7 +7,7 @@
 
 (defn report-var-element
   [{:keys [type] :as el}]
-  (when type
+  (when (#{:pass :fail :error} type)
     (xml/element type (dissoc el :type))))
 
 (defn report-var
@@ -57,5 +57,5 @@
   [results]
   (let [results (clojure.walk/postwalk #(if (exception? %) (ex->str %) %) results)]
     (xml/indent-str
-     (apply xml/element :testsuites {}
-       (map (partial apply report-ns) results)))))
+      (apply xml/element :testsuites {}
+        (map (partial apply report-ns) results)))))
