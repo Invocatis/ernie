@@ -1,6 +1,7 @@
 (ns ernie.semantics
   (:require
     [ernie.util :refer :all]
+    [ernie.log :as log]
     [clojure.string :as string]
     [clojure.set :as set]
     [clojure.java.io :as io]
