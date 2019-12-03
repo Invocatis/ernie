@@ -150,13 +150,20 @@
 
 (defn failure-message
   [e]
-  (apply str
-    (interpose \newline
-      (take-while (complement
-                    #(or (string/includes? % "ernie")
-                         (string/includes? % "clojure")))
-                  (string/split-lines
-                    (stacktrace-string e))))))
+  (if (nil? e)
+    ""
+    (str
+      (apply str
+        (interpose \newline
+          (take-while (complement
+                        #(or (string/includes? % "ernie")
+                             (string/includes? % "clojure")))
+                      (string/split-lines
+                        (stacktrace-string e)))))
+      \newline
+      "CAUSED BY:"
+      \newline
+      (failure-message (.getCause e)))))
 
 (defn handle-scenario
   [exp stack metadata statements]
