@@ -7,8 +7,10 @@
 
 (defn report-var-element
   [{:keys [type] :as el}]
-  (when (#{:pass :fail :error} type)
-    (xml/element type (dissoc el :type))))
+  (condp = type
+    :fail (xml/element :failure (dissoc el :type))
+    :error (xml/element :error (dissoc el :type))
+    nil))
 
 (defn report-var
   [var value]
@@ -38,7 +40,7 @@
     (partial xml/element :testsuite
              {:name (ns->suitename ns)
               :package (ns->packagename ns)})
-    (map (partial apply report-var) vars)))
+    (map (partial apply report-var) (sort-by #(-> % meta :name) vars))))
 
 (defn exception?
   [v]
@@ -56,6 +58,6 @@
 (defn report
   [results]
   (let [results (clojure.walk/postwalk #(if (exception? %) (ex->str %) %) results)]
-    (xml/indent-str
+    (xml/emit-str
       (apply xml/element :testsuites {}
         (map (partial apply report-ns) results)))))

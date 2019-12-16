@@ -37,32 +37,6 @@
   [class]
   (into [] (.getDeclaredMethods class)))
 
-(def empty-parameters (make-array java.lang.Class 0))
-
-(defn base-obj
-  [class]
-  (.. class
-      (getConstructor empty-parameters)
-      (newInstance (object-array 0))))
-
-(def mem-base-obj (memoize base-obj))
-
-(def empty-parameters (make-array java.lang.Class 0))
-
-(defn base-obj
-  [class]
-  (.. class
-      (getConstructor empty-parameters)
-      (newInstance (object-array 0))))
-
-(def mem-base-obj (memoize base-obj))
-
-(defn ainto
-  [arr coll]
-  (doseq [i (range (alength arr))]
-    (aset arr i (get coll i)))
-  arr)
-
 (defn join-method
   [f1 f2]
   (if (nil? f1)
@@ -80,33 +54,17 @@
           (<= nargs2 nargs1 nargs) (apply nargs1)
           :else (throw (IllegalArgumentException. "Too few arguments passed")))))))
 
-(defn wrap-test-method
-  [method]
-  (let [obj (mem-base-obj (.getDeclaringClass method))]
-    ^{:method method}
-    (fn [& args]
-      (try
-        (if (.isVarArgs method)
-          (let [num-params (alength (.getParameters method))
-                varargs-type (.getComponentType (.getType (aget (.getParameters method) (dec num-params))))
-                [args varargs] (split-at (dec num-params) args)
-                varargs-arr (ainto (make-array varargs-type (count varargs)) (vec varargs))]
-            (.invoke method obj (to-array (conj (vec args) varargs-arr))))
-          (.invoke method obj (to-array (take (alength (.getParameters method)) args))))
-        (catch java.lang.reflect.InvocationTargetException e
-          (throw (.getCause e)))))))
-
 (defn wrap-verification-method
   [method]
   (fn [& args]
-    (let [result (apply (comp object->edn (wrap-test-method method)) args)]
+    (let [result (apply (comp object->edn (wrap-method method)) args)]
       (update result :status (comp keyword str)))))
 
 (defn- method-name-value-pair
   [type m]
   (let [annotations (seq (.getAnnotationsByType m type))]
     (->> annotations
-      (map (fn [a] [(.value a) (wrap-test-method m)]))
+      (map (fn [a] [(.value a) (wrap-method m)]))
       (into {}))))
 
 (defn all-methods

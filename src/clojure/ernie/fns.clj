@@ -3,6 +3,9 @@
     [ernie.util])
   (:refer-clojure :exclude [namespace]))
 
+(def control-flow-fns
+  {:do #(do %&)})
+
 (def boolean-fns
   {:and #(and %&)
    :or #(and %&)
@@ -51,8 +54,13 @@
 (def object-fns
   {:objectToEdn ernie.util/object->edn})
 
+(def time-fns
+  {:now #(.format (new java.text.SimpleDateFormat "MM-dd-yyyy HH:mm:ss")
+                  (new java.util.Date))})
+
 (def namespace
   (merge
+    control-flow-fns
     boolean-fns
     comparison-fns
     string-fns
@@ -60,4 +68,5 @@
     math-fns
     io-fns
     assert-fns
-    object-fns))
+    object-fns
+    time-fns))

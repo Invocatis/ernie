@@ -130,3 +130,38 @@
          {:result result#
           :out (str out# jout-str#)
           :err (str err# jerr-str#)}))))
+
+(defn ainto
+  [arr coll]
+  (doseq [i (range (alength arr))]
+    (aset arr i (get coll i)))
+  arr)
+
+(def empty-parameters (make-array java.lang.Class 0))
+
+(def empty-parameters (make-array java.lang.Class 0))
+
+(defn base-obj
+  [class]
+  (.. class
+      (getConstructor empty-parameters)
+      (newInstance (object-array 0))))
+
+(def mem-base-obj (memoize base-obj))
+
+(defn wrap-method
+  ([method]
+   (wrap-method method (mem-base-obj (.getDeclaringClass method))))
+  ([method obj]
+   ^{:method method}
+   (fn [& args]
+     (try
+       (if (.isVarArgs method)
+         (let [num-params (alength (.getParameters method))
+               varargs-type (.getComponentType (.getType (aget (.getParameters method) (dec num-params))))
+               [args varargs] (split-at (dec num-params) args)
+               varargs-arr (ainto (make-array varargs-type (count varargs)) (vec varargs))]
+           (.invoke method obj (to-array (conj (vec args) varargs-arr))))
+         (.invoke method obj (to-array (take (alength (.getParameters method)) args))))
+       (catch java.lang.reflect.InvocationTargetException e
+         (throw (.getCause e)))))))

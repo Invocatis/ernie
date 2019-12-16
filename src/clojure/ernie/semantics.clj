@@ -1,26 +1,18 @@
 (ns ernie.semantics
   (:require
     [ernie.util :refer :all]
-    [ernie.log :as log]
+    [ernie.log :as l]
+    [clojure.tools.logging :as log]
     [clojure.string :as string]
     [clojure.set :as set]
     [clojure.java.io :as io]
     [clojure.walk :as walk]
     [clojure.pprint :refer [pprint]]
     [clojure.test :refer [testing is]]
-    [eftest.runner :as ef]
-    [com.rpl.defexception :refer [defexception]])
+    [eftest.runner :as ef])
   (:import
     [java.io ByteArrayOutputStream PrintStream StringWriter])
   (:refer-clojure :exclude [time namespace]))
-
-(defexception VerificationException)
-
-(defexception NoActionDefinedExcpetion)
-
-(defexception NoCaseDefinedException)
-
-(defexception UndefinedSymbolException)
 
 (def ^:dynamic executed)
 
@@ -51,15 +43,14 @@
       (get @suites ns-name)
       (let [_ (remove-ns ns-name)
             ns (create-ns ns-name)]
-        (intern ns 'executed (atom {}))
+        (intern ns '_executed (atom []))
+        (intern ns '_result (atom []))
+        (intern ns '_summary (atom {:test 0 :pass 0 :fail 0 :error 0
+                                    :type :summary :duration (System/nanoTime)}))
         (with-ns ns
           (clojure.core/refer 'clojure.core :exclude '[namespace])
           (require '[ernie.semantics :refer :all])
-          (require '[clojure.test :refer [deftest]])
-          (def _executed (atom []))
-          (def _result (atom []))
-          (def _summary (atom {:test 0 :pass 0 :fail 0 :error 0
-                               :type :summary :duration (System/nanoTime)})))
+          (require '[clojure.test :refer [deftest]]))
         (swap! suites assoc ns-name ns)
         ns))))
 
@@ -101,15 +92,17 @@
       (swap! executed conj {:result nil
                             :target target
                             :args actuals})
-      (throw (new Exception (format "ActionException %s : %s" (str target) (str actuals)) e)))))
+      (throw e))))
+      ; (throw (new Exception (format "ActionException %s : %s" (str target) (str actuals)) e)))))
 
 (defn eval|action
   [stack [target actuals :as exp]]
+  (log/infof "Action: %s%s" target actuals)
   (if-let [action (get-in @namespace [:action target])]
     (let [result (invoke-action target action actuals)]
       (verify target actuals result)
       result)
-    (throw (->NoActionDefinedExcpetion (str target)))))
+    (throw (Exception. (format "Action %s Undefined" target)))))
 
 (defn eval|expect
   [stack [exp expected]]
@@ -133,7 +126,6 @@
     (eval* stack statements)
     (report! {:type :end-test-ns :ns suite})))
 
-
 (defn ->test-fn
   [ns env ex stack {:keys [name doc]} statements]
   (fn []
@@ -152,18 +144,20 @@
   [e]
   (if (nil? e)
     ""
-    (str
-      (apply str
-        (interpose \newline
-          (take-while (complement
-                        #(or (string/includes? % "ernie")
-                             (string/includes? % "clojure")))
-                      (string/split-lines
-                        (stacktrace-string e)))))
-      \newline
-      "CAUSED BY:"
-      \newline
-      (failure-message (.getCause e)))))
+    (let [sts (stacktrace-string e)
+          lines (take-while (complement
+                             #(or (string/includes? % "ernie")
+                                  (string/includes? % "clojure")))
+                      (string/split-lines sts))]
+      (if (empty? lines)
+        sts
+        (str
+          (apply str (interpose \newline lines))
+          \newline
+           "CAUSED BY:"
+          \newline
+          (failure-message (.getCause e))))
+      sts)))
 
 (defn handle-scenario
   [exp stack metadata statements]
@@ -179,8 +173,9 @@
       (update-summary! :pass inc)
       (catch java.lang.Throwable e
         (update-summary! :fail inc)
+        (println (failure-message e))
         (report! {:type :fail :message (failure-message e)
-                  :line (log/line-source exp)})))
+                  :line (l/line-source exp)})))
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
 (defn eval|block
@@ -199,12 +194,13 @@
 
 (defn eval|call
   [stack [name actuals :as exp]]
+  (log/tracef "Call: %s%s" name actuals)
   (if-let [f (get-in @namespace [:cases (keyword name)])]
     (if (map? actuals)
       (let [formals (-> f meta :formals)]
         (apply f (into [] (map #(get actuals %) formals))))
       (apply f actuals))
-    (throw (->NoCaseDefinedException name))))
+    (throw (Exception. (format "Case %s Undefined" name)))))
 
 (defn eval|body
   [stack [& body]]
@@ -270,7 +266,7 @@
     (if-let [[_ v] (or (find @environment v)
                        (find (get @namespace :cases) (keyword v)))]
       v
-      (throw (->UndefinedSymbolException v)))))
+      (throw (Exception. (format "Symbol %s Undefined" v))))))
 
 (defn eval|value
   [stack [v :as exp]]
@@ -278,9 +274,17 @@
 
 (defn eval|access
   [stack [target entity :as exp]]
-  (cond
-    (map? target) (get target entity)
-    :else (eval|access stack [(object->edn target) (keyword entity)])))
+  (when target
+    (cond
+      (map? target) (get target entity)
+      :else (eval|access stack [(object->edn target) (keyword entity)]))))
+
+(defn eval|method-call
+  [stack [target method-name args]]
+  (when-not (nil? target)
+    (let [types (into-array java.lang.Class (map class args))
+          f (wrap-method (.getMethod (class target) (name method-name) types) target)]
+      (apply f args))))
 
 (defn eval|metadata
   [stack [map]]
@@ -305,23 +309,40 @@
    :symbol          eval|symbol
    :value           eval|value
    :access          eval|access
+   :method-call     eval|method-call
    :metadata        eval|metadata
    :metadata-access eval|metadata-access})
 
 (def atomic? #{:expect :value :case :block})
 
+(defn eval|if
+  [stack [_ _ [_ pred t f :as x]]]
+  (if (eval|exp stack pred)
+    (eval|exp stack t)
+    (when f
+      (eval|exp stack f))))
+
+(def special? {:if eval|if})
+
 (defn eval*
   [stack vals]
   (into [] (map (partial eval|exp stack) vals)))
 
+(defn eval|args
+  [stack [op & args :as exp]]
+  (if (atomic? op)
+    args
+    (eval* stack args)))
+
 (defn eval|exp
   [stack [op & args :as exp]]
-  (let [result (if-not (atomic? op)
-                 (eval* stack args)
-                 args)]
-    (if-let [f (get dispatch-map op)]
-      (apply f [(conj stack exp) result])
-      (throw (new Exception (format "Unexpected Operation: %s" op))))))
+  (log/trace "EXP: %s" exp)
+  (if-let [f (and (#{:action :call} op) (special? (keyword (second (first args)))))]
+    (apply f [stack exp])
+    (let [result (eval|args stack exp)]
+      (if-let [f (get dispatch-map op)]
+        (apply f [(conj stack exp) result])
+        (throw (new Exception (format "Unexpected Operation: %s" op)))))))
 
 (defn eval|expressions*
   [stack exps]

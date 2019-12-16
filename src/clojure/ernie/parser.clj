@@ -10,7 +10,8 @@
     "
       root := (block | case | CALL (expect | call) | INVOKE action)*
 
-      <expression> := value | access | symbol | compound | call | action | metadata-access
+      <expression> := value | access | symbol | compound
+                    | call | action | metadata-access | method-call
 
       block := name SQUID metadata body END-SQUID
       run := <'run'> ASSIGN body
@@ -51,6 +52,8 @@
       name := word
 
       access := expression ACCESS name
+
+      method-call := expression ACCESS name list
 
       <compound> := map | list
       value := string | integer | decimal | nothing

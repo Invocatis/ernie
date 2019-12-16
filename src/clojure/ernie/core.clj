@@ -5,10 +5,12 @@
     [ernie.fns :as fns]
     [ernie.parser :refer [parse]]
     [ernie.semantics :as semantics]
-    [ernie.log :as log]
     [ernie.util :refer :all]
     [ernie.report.junit :as junit]
-    [clojure.pprint :refer [pprint]]))
+    [clojure.pprint :refer [pprint]]
+    [clojure.java.io :as io]))
+
+(def base-ns (atom {:cases fns/namespace}))
 
 (defn run
   [{:keys [namespace suites]} script]
@@ -18,13 +20,20 @@
            expressions))
       (semantics/eval|expressions
         (merge-with merge
-                    {:cases fns/namespace} namespace)
+                    @base-ns namespace)
         suites expressions))))
+
+; (let [result (run @base-ns (slurp (io/resource "bootstrap.ernie")))]
+;   (swap! base-ns assoc :cases (-> result :namespace :cases)))
 
 (defn suite-report-file-name
   [base-dir suite]
-  (str base-dir "/"
-    (clojure.string/replace (name (ns-name suite)) \. (.charAt java.io.File/separator 0))))
+  (when (and base-dir suite (ns-name suite))
+    (str base-dir "/"
+      (clojure.string/replace
+        (name (ns-name suite))
+        \.
+        (.charAt java.io.File/separator 0)))))
 
 (defn normalize-results
   [results]
@@ -71,6 +80,6 @@
     (let [filename (when report-dir (suite-report-file-name report-dir suite))
           results (normalize-results @@(ns-resolve suite '_result))
           report (results->report results)]
-      (when filename
-        (clojure.java.io/make-parents filename))
-      (spit (or (str filename ".xml") *out*) report))))
+      (when (and (not (empty? results)) filename)
+        (clojure.java.io/make-parents filename)
+        (spit (or (str filename ".xml") *out*) report)))))
