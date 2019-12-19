@@ -93,12 +93,20 @@
       (apply str (interpose "\t\t" trace))
       (let [exp (peek stack)]
         (if (contains? (meta exp) :instaparse.gll/start-line)
-          (let [line (str "\t" (line-source exp) ": "
-                          (expression-line-numbers (meta exp)) "\n")]
+          (let [line 1]
             (if (= line (peek trace))
               (recur (pop stack) trace)
               (recur (pop stack) (conj trace line))))
           (recur (pop stack) trace))))))
+
+(defn stack-line
+  [exp]
+  (str "\t" (line-source exp) ": "
+       (expression-line-numbers (meta exp)) "\n"))
+
+(defn stack-trace
+  [stack]
+  (apply str (interpose \newline (map stack-line stack))))
 
 (defn log-line
   [{:keys [expression error stack]}]

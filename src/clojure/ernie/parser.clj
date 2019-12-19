@@ -156,7 +156,8 @@
 
 (defn add-source*
   [source any]
-  (with-meta any (merge (meta any) {:source (string/trim (apply subs source (insta/span any)))})))
+  (with-meta any (merge (meta any) {:source
+                                    (string/trim (apply subs source (insta/span any)))})))
 
 (defn add-source
   [source result]

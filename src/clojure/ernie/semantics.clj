@@ -44,7 +44,7 @@
      {:time (/ (double (- (. System (nanoTime)) start#)) 1000000.0)
       :value ret#}))
 
-(def trunc-length)
+(def trunc-length 1000)
 
 (defn trunc
   [s n]
@@ -54,7 +54,7 @@
   [target actuals result]
   (when-let [verify-fn (get-in @namespace [:verify target])]
     (log/infof "Verify: %s" target)
-    (log/debugf "Args: %s" (trunc (str actuals trunc-length)))
+    (log/debugf "Args: %s" (trunc (str actuals)  trunc-length))
     (apply verify-fn result actuals)))
 
 (defn cleanup
@@ -127,7 +127,7 @@
     (let [result (invoke-action target action actuals)]
       (verify target actuals result)
       result)
-    (throw (Exception. (format "Action %s Undefined" target)))))
+    (throw (Exception. (format "Action %s Undefined: \n%s" target (l/stack-trace stack))))))
 
 (defn eval|expect
   [stack [exp expected]]
@@ -236,7 +236,7 @@
   ^{:arity #{(count formals)}
     :formals formals}
   (fn [& args]
-    (binding [environment (atom (merge @environment (zipmap formals args)))]
+    (binding [environment (atom (zipmap formals args))]
       (eval|exp stack body))))
 
 (defn join-cases
@@ -291,7 +291,7 @@
     (if-let [[_ v] (or (find @environment v)
                        (find (get @namespace :cases) (keyword v)))]
       v
-      (throw (Exception. (format "Symbol %s Undefined \n%s" v \n(apply str (interpose \newline (map l/line-source stack)))))))))
+      (do (def s stack) (throw (Exception. (format "Symbol %s Undefined \n%s" v (l/stack-trace stack))))))))
 
 (defn eval|value
   [stack [v :as exp]]
