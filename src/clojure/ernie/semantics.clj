@@ -2,14 +2,15 @@
   (:require
     [ernie.util :refer :all]
     [ernie.log :as l]
-    [clojure.tools.logging :as log]
+    [taoensso.timbre :as log]
     [clojure.string :as string]
     [clojure.set :as set]
     [clojure.java.io :as io]
     [clojure.walk :as walk]
     [clojure.pprint :refer [pprint]]
     [clojure.test :refer [testing is]]
-    [eftest.runner :as ef])
+    [eftest.runner :as ef]
+    [shutdown.core :as shutdown])
   (:import
     [java.io ByteArrayOutputStream PrintStream StringWriter])
   (:refer-clojure :exclude [time namespace]))
@@ -36,24 +37,6 @@
   [v f & args]
   (swap! @(ns-resolve suite '_summary) update v #(apply f % args)))
 
-(defn ->suite
-  [name]
-  (let [ns-name (symbol (str "test." name))]
-    (or
-      (get @suites ns-name)
-      (let [_ (remove-ns ns-name)
-            ns (create-ns ns-name)]
-        (intern ns '_executed (atom []))
-        (intern ns '_result (atom []))
-        (intern ns '_summary (atom {:test 0 :pass 0 :fail 0 :error 0
-                                    :type :summary :duration (System/nanoTime)}))
-        (with-ns ns
-          (clojure.core/refer 'clojure.core :exclude '[namespace])
-          (require '[ernie.semantics :refer :all])
-          (require '[clojure.test :refer [deftest]]))
-        (swap! suites assoc ns-name ns)
-        ns))))
-
 (defmacro time-and-value
   [expr]
   `(let [start# (. System (nanoTime))
@@ -61,9 +44,17 @@
      {:time (/ (double (- (. System (nanoTime)) start#)) 1000000.0)
       :value ret#}))
 
+(def trunc-length)
+
+(defn trunc
+  [s n]
+  (subs s 0 (min (count s) n)))
+
 (defn verify
   [target actuals result]
   (when-let [verify-fn (get-in @namespace [:verify target])]
+    (log/infof "Verify: %s" target)
+    (log/debugf "Args: %s" (trunc (str actuals trunc-length)))
     (apply verify-fn result actuals)))
 
 (defn cleanup
@@ -74,11 +65,44 @@
       (let [{:keys [target args result]} (peek executed)
             clean (get-in namespace [:clean target])]
         (when clean
+          (log/infof "Clean: %s" target)
+          (log/debugf "Args: %s" (trunc (str args) trunc-length))
           (try
             (apply clean result args)
             (catch Exception e
               (.printStackTrace e))))
         (recur (pop executed))))))
+
+(defn ->executed
+  [namespace ns name]
+  (let [ex (atom [])]
+    (shutdown/remove-hook! (keyword ns (str name)))
+    (shutdown/add-hook!
+      (keyword ns (str name))
+      #(when-not (or (instance? clojure.lang.Var$Unbound namespace)
+                     (empty? @namespace))
+         (log/info "INTERRUPT! STARTING CLEANUP")
+         (cleanup @namespace @ex)))
+    ex))
+
+(defn ->suite
+  [name]
+  (log/infof "Suite: %s" name)
+  (let [ns-name (symbol (str "test." name))]
+    (or
+      (get @suites ns-name)
+      (let [_ (remove-ns ns-name)
+            ns (create-ns ns-name)]
+        (intern ns '_executed (->executed namespace "suite" name))
+        (intern ns '_result (atom []))
+        (intern ns '_summary (atom {:test 0 :pass 0 :fail 0 :error 0
+                                    :type :summary :duration (System/nanoTime)}))
+        (with-ns ns
+          (clojure.core/refer 'clojure.core :exclude '[namespace])
+          (require '[ernie.semantics :refer :all])
+          (require '[clojure.test :refer [deftest]]))
+        (swap! suites assoc ns-name ns)
+        ns))))
 
 (defn invoke-action
   [target action actuals]
@@ -97,7 +121,8 @@
 
 (defn eval|action
   [stack [target actuals :as exp]]
-  (log/infof "Action: %s%s" target actuals)
+  (log/infof "Action: %s" target)
+  (log/debugf "Args: %s" (trunc (str actuals) trunc-length))
   (if-let [action (get-in @namespace [:action target])]
     (let [result (invoke-action target action actuals)]
       (verify target actuals result)
@@ -131,7 +156,7 @@
   (fn []
     (binding [namespace (atom ns)
               environment (atom env)
-              executed (atom [])]
+              executed (->executed namespace "scenario" name)]
       (try
         (eval* stack statements)
         (catch java.lang.Throwable e
@@ -173,7 +198,7 @@
       (update-summary! :pass inc)
       (catch java.lang.Throwable e
         (update-summary! :fail inc)
-        (println (failure-message e))
+        (log/error (failure-message e))
         (report! {:type :fail :message (failure-message e)
                   :line (l/line-source exp)})))
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
@@ -184,7 +209,7 @@
     (condp = (keyword name)
       :suite    (handle-suite    stack metadata (vec statements))
       :scenario (handle-scenario exp stack metadata (vec statements))
-      (binding [executed (atom [])]
+      (binding [executed (->executed namespace "block" "name")]
         (try
           (eval* stack statements)
           (catch java.lang.Throwable e
@@ -266,18 +291,33 @@
     (if-let [[_ v] (or (find @environment v)
                        (find (get @namespace :cases) (keyword v)))]
       v
-      (throw (Exception. (format "Symbol %s Undefined" v))))))
+      (throw (Exception. (format "Symbol %s Undefined \n%s" v \n(apply str (interpose \newline (map l/line-source stack)))))))))
 
 (defn eval|value
   [stack [v :as exp]]
   v)
+
+(defn capt
+  [word]
+  (apply str (string/capitalize (first word)) (rest word)))
+
+(defn java-get
+  [target field]
+  (let [f (.getDeclaredField (class target) (name field))
+        is-bool (= "boolean" (string/lower-case (.getSimpleName (.getType f))))
+        prefix (if is-bool "is" "get")]
+    (.invoke (.getMethod (class target)
+                         (str prefix (capt (name field)))
+                         (into-array java.lang.Class []))
+             target
+             (object-array 0))))
 
 (defn eval|access
   [stack [target entity :as exp]]
   (when target
     (cond
       (map? target) (get target entity)
-      :else (eval|access stack [(object->edn target) (keyword entity)]))))
+      :else (java-get target entity))))
 
 (defn eval|method-call
   [stack [target method-name args]]
@@ -372,7 +412,7 @@
 (defn sub
   [ns suites' exps]
   (binding [namespace (atom ns)
-            executed (atom [])
+            executed (->executed namespace "sub" (ns-name suite))
             environment (atom {})]
     (let [result (eval|expressions* [] exps)]
       {:namespace @namespace

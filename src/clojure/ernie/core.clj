@@ -23,9 +23,6 @@
                     @base-ns namespace)
         suites expressions))))
 
-; (let [result (run @base-ns (slurp (io/resource "bootstrap.ernie")))]
-;   (swap! base-ns assoc :cases (-> result :namespace :cases)))
-
 (defn suite-report-file-name
   [base-dir suite]
   (when (and base-dir suite (ns-name suite))

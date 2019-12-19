@@ -1,5 +1,6 @@
 (ns ernie.fns
   (:require
+    [clojure.set :as set]
     [ernie.util])
   (:refer-clojure :exclude [namespace]))
 
@@ -58,6 +59,13 @@
   {:now #(.format (new java.text.SimpleDateFormat "MM-dd-yyyy HH:mm:ss")
                   (new java.util.Date))})
 
+(def set-fns
+  {:set set
+   :contains contains?
+   :union set/union
+   :intersection set/intersection
+   :remove disj})
+
 (def namespace
   (merge
     control-flow-fns
@@ -69,4 +77,5 @@
     io-fns
     assert-fns
     object-fns
-    time-fns))
+    time-fns
+    set-fns))
