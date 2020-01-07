@@ -1,4 +1,4 @@
-(defproject ernie "0.1.0-SNAPSHOT"
+(defproject ernie "0.1.1"
   :description "FIXME: write description"
 
   :repositories [["atlassian" {:id "atlassian"

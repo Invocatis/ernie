@@ -1,11 +1,6 @@
 (ns ernie.java
   (:require
-    [clojure.walk :refer [stringify-keys]]
-    [clojure.pprint :refer [pprint]]
-    [instaparse.core :as insta]
     [ernie.core :as core]
-    [ernie.parser :as parser]
-    [ernie.log :as log]
     [ernie.util :refer :all])
   (:import
     [ernie.core Action Clean Verify])
@@ -23,7 +18,7 @@
 
 (defn -init
   []
-  (let [state (atom {:namespace {} :suites {}})]
+  (let [state (atom {:namespace {} :suites {} :components {}})]
     [[] state]))
 
 (defn resolve-class
@@ -96,7 +91,7 @@
 
 (defn load!
   [this class]
-  (swap! (.state this) update :namespace (partial merge-with merge) (-load class)))
+  (swap! (.state this) update :components (partial merge-with merge) (-load class)))
 
 (defn run-string
   [this str]

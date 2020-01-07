@@ -2,31 +2,32 @@
   (:require
     [clojure.string :as string]
     [clojure.walk :as walk]
-    [clojure.java.io :as io]
     [instaparse.core :as insta]))
 
 (def grammar
   (insta/parser
     "
-      root := (block | case | CALL (expect | call) | INVOKE action)*
+      root := (block | def | call | INVOKE action)*
 
-      <expression> := value | access | symbol | compound
+      def := <'def'> name ASSIGN expression
+
+      <expression> := value | compound | access | symbol
                     | call | action | metadata-access | method-call
+                    | fn
 
-      block := name SQUID metadata body END-SQUID
-      run := <'run'> ASSIGN body
-      case := <'case'> name formals ASSIGN body
-      body := (bind | call | expect | action | block)* expression?
+      block := name name body
+      body := OCB (bind | call | action | block)* expression? CCB
+
+      fn := formals SQUID body
 
       metadata := METADATA map
 
       metadata-access := METADATA name
 
-      expect := call expectation
 
       call := name actuals
 
-      formals := OP ((name COMMA)* name)? CP
+      formals := OP name* CP
 
       actuals := map | list
 
@@ -34,19 +35,12 @@
 
       action := INVOKE name list
 
-      name-value-params := ((name-value COMMA)* name-value)?
+      name-value-params := name-value*
 
       name-value := name ASSIGN (expression | same)
                   | symbol
 
       same := <'%'>
-
-      <expectation> := RESULT (success | failure)
-      wait := <'...'> (integer | decimal) time-unit
-      <time-unit> := word
-
-      success := #'(?i)success'
-      failure := #'(?i)failure'
 
       symbol := name
       name := word
@@ -61,27 +55,24 @@
       (* Data Types *)
       map := OCB name-value-params CCB
            | OB name-value-params CB
-      list := OP ((expression COMMA)* expression)? CP
+      list := OP expression* CP
       string := SQUOTE squote-string-char* SQUOTE
               | DQUOTE dquote-string-char* DQUOTE
-      integer := digit+
-      decimal := digit+ PERIOD digit+
+      integer := #'[0-9]+'
+      decimal := #'[0-9]*\\.[0-9]+|[0-9]+\\.[0-9]*'
       nothing := #'(?i)nothing'
 
       (* Simples *)
       <character> := #'[a-zA-Z]'
-      word := word-char (word-char | digit)*
+      word := #'[^{}\\[\\]()\"\\'!:#\\s,.0-9]'#'[^{}\\[\\]()\"\\'!:#\\s.,]*'
       <word-char> := character | #'[+\\-*/]'
       <squote-string-char> := #'[^\\']'
       <dquote-string-char> := #'[^\"]'
-      <digit> := #'[0-9]'
 
       (* Control Symbols *)
       <ASSIGN> := <':'>
-      <RESULT> := <'->'>
 
       <INVOKE> := <'!'>
-      <CALL> := <'?'>
 
       <OP> := <'('>
       <CP> := <')'>
@@ -94,8 +85,6 @@
 
       <PERIOD> := '.'
 
-      <COMMA> := <','>
-
       <DQUOTE> := <'\"'>
       <SQUOTE> := <'\\''>
 
@@ -104,9 +93,8 @@
       <METADATA> := <'^'>
 
       <SQUID> := <'=>'>
-      <END-SQUID> := <'|>'>
     "
-    :auto-whitespace :standard))
+    :auto-whitespace :comma))
 
 (defn name-value
   ([[_ n]] [:pair n [:symbol n]])

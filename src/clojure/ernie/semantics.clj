@@ -4,12 +4,7 @@
     [ernie.log :as l]
     [taoensso.timbre :as log]
     [clojure.string :as string]
-    [clojure.set :as set]
-    [clojure.java.io :as io]
-    [clojure.walk :as walk]
-    [clojure.pprint :refer [pprint]]
     [clojure.test :refer [testing is]]
-    [eftest.runner :as ef]
     [shutdown.core :as shutdown])
   (:import
     [java.io ByteArrayOutputStream PrintStream StringWriter])
@@ -24,6 +19,8 @@
 (def ^:dynamic namespace)
 
 (def ^:dynamic environment)
+
+(def ^:dynamic components)
 
 (def ^:dynamic suites)
 
@@ -52,7 +49,7 @@
 
 (defn verify
   [target actuals result]
-  (when-let [verify-fn (get-in @namespace [:verify target])]
+  (when-let [verify-fn (get-in components [:verify target])]
     (log/infof "Verify: %s" target)
     (log/debugf "Args: %s" (trunc (str actuals)  trunc-length))
     (apply verify-fn result actuals)))
@@ -63,7 +60,7 @@
     (if (empty? executed)
       nil
       (let [{:keys [target args result]} (peek executed)
-            clean (get-in namespace [:clean target])]
+            clean (get-in components [:clean target])]
         (when clean
           (log/infof "Clean: %s" target)
           (log/debugf "Args: %s" (trunc (str args) trunc-length))
@@ -74,15 +71,16 @@
         (recur (pop executed))))))
 
 (defn ->executed
-  [namespace ns name]
+  [components ns name]
   (let [ex (atom [])]
     (shutdown/remove-hook! (keyword ns (str name)))
     (shutdown/add-hook!
       (keyword ns (str name))
-      #(when-not (or (instance? clojure.lang.Var$Unbound namespace)
-                     (empty? @namespace))
+      #(do (println components)
+        (when-not (or (instance? clojure.lang.Var$Unbound components)
+                      (empty? components))
          (log/info "INTERRUPT! STARTING CLEANUP")
-         (cleanup @namespace @ex)))
+         (cleanup components @ex))))
     ex))
 
 (defn ->suite
@@ -93,7 +91,7 @@
       (get @suites ns-name)
       (let [_ (remove-ns ns-name)
             ns (create-ns ns-name)]
-        (intern ns '_executed (->executed namespace "suite" name))
+        (intern ns '_executed (->executed components "suite" name))
         (intern ns '_result (atom []))
         (intern ns '_summary (atom {:test 0 :pass 0 :fail 0 :error 0
                                     :type :summary :duration (System/nanoTime)}))
@@ -117,25 +115,21 @@
                             :target target
                             :args actuals})
       (throw e))))
-      ; (throw (new Exception (format "ActionException %s : %s" (str target) (str actuals)) e)))))
+
+(defn eval|def
+  [stack [name exp]]
+  (swap! namespace assoc (keyword name) exp)
+  nil)
 
 (defn eval|action
   [stack [target actuals :as exp]]
   (log/infof "Action: %s" target)
   (log/debugf "Args: %s" (trunc (str actuals) trunc-length))
-  (if-let [action (get-in @namespace [:action target])]
+  (if-let [action (get-in components [:action target])]
     (let [result (invoke-action target action actuals)]
       (verify target actuals result)
       result)
     (throw (Exception. (format "Action %s Undefined: \n%s" target (l/stack-trace stack))))))
-
-(defn eval|expect
-  [stack [exp expected]]
-  (if (= expected :success)
-    (eval|exp stack exp)
-    (try
-      (eval|exp stack exp)
-      (catch Error e))))
 
 (defn eval|bind
   [stack [sym exp]]
@@ -152,17 +146,17 @@
     (report! {:type :end-test-ns :ns suite})))
 
 (defn ->test-fn
-  [ns env ex stack {:keys [name doc]} statements]
+  [ns env ex stack {name "name"} statements]
   (fn []
     (binding [namespace (atom ns)
               environment (atom env)
-              executed (->executed namespace "scenario" name)]
+              executed (->executed components "scenario" name)]
       (try
         (eval* stack statements)
         (catch java.lang.Throwable e
           (throw e))
         (finally
-          (cleanup @namespace @executed)))
+          (cleanup components @executed)))
       true)))
 
 (defn failure-message
@@ -179,7 +173,7 @@
         (str
           (apply str (interpose \newline lines))
           \newline
-           "CAUSED BY:"
+          "CAUSED BY:"
           \newline
           (failure-message (.getCause e))))
       sts)))
@@ -187,7 +181,7 @@
 (defn handle-scenario
   [exp stack metadata statements]
   (let [test-name (symbol (str (get metadata "name" (name (gensym 'scenario)))))
-        test-fn (->test-fn @namespace @environment executed stack metadata statements)]
+        test-fn (->test-fn @namespace (with-meta @environment metadata) executed stack metadata statements)]
     (intern suite (with-meta test-name {:test test-fn})
       (fn [] (clojure.test/test-var (resolve test-name))))
     (report! {:type :begin-test-var :var (ns-resolve suite test-name)})
@@ -204,34 +198,36 @@
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
 (defn eval|block
-  [stack [[_ name] metadata [_ & statements] :as exp]]
-  (let [metadata (eval|exp stack metadata)]
-    (condp = (keyword name)
+  [stack [[_ type] [_ name][_ & statements] :as exp]]
+  (let [metadata {"name" name}]
+    (condp = (keyword type)
       :suite    (handle-suite    stack metadata (vec statements))
       :scenario (handle-scenario exp stack metadata (vec statements))
-      (binding [executed (->executed namespace "block" "name")]
+      (binding [executed (->executed components "block" "name")]
         (try
           (eval* stack statements)
           (catch java.lang.Throwable e
             (throw e))
           (finally
-            (cleanup @namespace @executed)))))))
+            (cleanup components @executed)))))))
 
 (defn eval|call
   [stack [name actuals :as exp]]
   (log/tracef "Call: %s%s" name actuals)
-  (if-let [f (get-in @namespace [:cases (keyword name)])]
-    (if (map? actuals)
-      (let [formals (-> f meta :formals)]
-        (apply f (into [] (map #(get actuals %) formals))))
-      (apply f actuals))
-    (throw (Exception. (format "Case %s Undefined" name)))))
+  (if-let [f (or (get @namespace (keyword name)) (get @environment (keyword name)))]
+    (if (fn? f)
+      (if (map? actuals)
+        (let [formals (-> f meta :formals)]
+          (apply f (into [] (map #(get actuals %) formals))))
+        (apply f actuals))
+      (throw (Exception. (format "Type %s cannot be invoked as a function" (type f)))))
+    (throw (Exception. (format "Symbol %s Undefined" name)))))
 
 (defn eval|body
   [stack [& body]]
   (last body))
 
-(defn ->case
+(defn ->fn
   [stack formals body]
   ^{:arity #{(count formals)}
     :formals formals}
@@ -239,38 +235,10 @@
     (binding [environment (atom (zipmap formals args))]
       (eval|exp stack body))))
 
-(defn join-cases
-  [name c0 c1]
-  (cond
-    (nil? c0) c1
-    (nil? c1) c0
-    :else
-    (let [arity0 (:arity (meta c0))
-          arity1 (:arity (meta c1))
-          arity-union (set/union arity0 arity1)]
-      ^{:arity arity-union}
-      (fn [& args]
-        (let [nargs (count args)]
-          (cond
-            (contains? arity0 nargs) (apply c0 args)
-            (contains? arity1 nargs) (apply c1 args)
-            :else
-            (throw
-              (new Exception
-                (format "%s -- Arity mismatch: Got %s %s but expected one of [%s]"
-                        name nargs args
-                        (apply str (interpose ", " (sort arity-union))))))))))))
-
-(defn eval|case
-  [stack [name formals body :as case]]
-  (let [name (eval|exp stack name)
-        formals (eval|exp stack formals)]
-    ; (swap! namespace update :cases
-    ;                  update-in [(keyword name)]
-    ;                  (partial join-cases name)
-    ;                  (->case stack formals body))
-    (swap! namespace update :cases assoc-in [(keyword name)] (->case stack formals body))
-    nil))
+(defn eval|fn
+  [stack [formals body :as case]]
+  (let [formals (eval|exp stack formals)]
+    (->fn stack formals body)))
 
 (defn eval|list
   [stack [& vals]]
@@ -286,12 +254,13 @@
 
 (defn eval|symbol
   [stack [v :as exp]]
+  (def n @namespace)
   (if (= v "nothing")
     nil
     (if-let [[_ v] (or (find @environment v)
-                       (find (get @namespace :cases) (keyword v)))]
+                       (find @namespace (keyword v)))]
       v
-      (do (def s stack) (throw (Exception. (format "Symbol %s Undefined \n%s" v (l/stack-trace stack))))))))
+      (throw (Exception. (format "Symbol %s Undefined \n%s" v (l/stack-trace stack)))))))
 
 (defn eval|value
   [stack [v :as exp]]
@@ -326,22 +295,17 @@
           f (wrap-method (.getMethod (class target) (name method-name) types) target)]
       (apply f args))))
 
-(defn eval|metadata
-  [stack [map]]
-  (swap! environment with-meta map)
-  map)
-
 (defn eval|metadata-access
   [stack [sym]]
   (get (meta @environment) sym))
 
 (def dispatch-map
   {:block           eval|block
-   :case            eval|case
+   :def             eval|def
+   :fn              eval|fn
    :body            eval|body
    :call            eval|call
    :bind            eval|bind
-   :expect          eval|expect
    :action          eval|action
    :map             eval|map
    :pair            eval|pair
@@ -350,10 +314,9 @@
    :value           eval|value
    :access          eval|access
    :method-call     eval|method-call
-   :metadata        eval|metadata
    :metadata-access eval|metadata-access})
 
-(def atomic? #{:expect :value :case :block})
+(def atomic? #{:value :fn :block})
 
 (defn eval|if
   [stack [_ _ [_ pred t f :as x]]]
@@ -374,15 +337,23 @@
     args
     (eval* stack args)))
 
+(def indent (atom 0))
+
 (defn eval|exp
-  [stack [op & args :as exp]]
-  (log/trace "EXP: %s" exp)
-  (if-let [f (and (#{:action :call} op) (special? (keyword (second (first args)))))]
-    (apply f [stack exp])
-    (let [result (eval|args stack exp)]
-      (if-let [f (get dispatch-map op)]
-        (apply f [(conj stack exp) result])
-        (throw (new Exception (format "Unexpected Operation: %s" op)))))))
+  [stack exp]
+  ; (println (apply str (repeat @indent \-)) exp)
+  ; (swap! indent inc)
+  (let [result
+         (let [[op & args :as exp] exp]
+           (log/trace "EXP: %s" exp)
+           (if-let [f (and (#{:action :call} op) (special? (keyword (second (first args)))))]
+             (apply f [stack exp])
+             (let [result (eval|args stack exp)]
+               (if-let [f (get dispatch-map op)]
+                 (apply f [(conj stack exp) result])
+                 (throw (new Exception (format "Unexpected Operation: %s" op)))))))]
+    ; (swap! indent dec)
+    result))
 
 (defn eval|expressions*
   [stack exps]
@@ -410,9 +381,9 @@
      (do ~@body)))
 
 (defn sub
-  [ns suites' exps]
+  [ns components suites' exps]
   (binding [namespace (atom ns)
-            executed (->executed namespace "sub" (ns-name suite))
+            executed (->executed components "sub" (ns-name suite))
             environment (atom {})]
     (let [result (eval|expressions* [] exps)]
       {:namespace @namespace
@@ -420,19 +391,20 @@
        :result (last result)})))
 
 (defn root
-  [ns suites' exp]
+  [ns components suites' exp]
   (bind-when (not (bound? (var suites))) [suites (atom suites')]
-    (binding [suite (->suite 'default)]
+    (binding [suite (->suite 'default)
+              components components]
       (report! {:type :begin-test-run})
       (report! {:type :begin-test-ns :ns suite})
-      (let [result (sub ns suites' exp)]
+      (let [result (sub ns components suites' exp)]
         (report! {:type :end-ns-run :ns suite})
         (update-summary! :duration #(- (System/nanoTime) %))
         (report! @@(ns-resolve suite '_summary))
         result))))
 
 (defn eval|expressions
-  [ns suites' exps]
+  [ns components suites' exps]
   (if (not (bound? (var suite)))
-    (root ns suites' exps)
-    (sub ns suites' exps)))
+    (root ns components suites' exps)
+    (sub ns components suites' exps)))

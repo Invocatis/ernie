@@ -2,6 +2,7 @@
   (:require
     [clojure.string :as string]
     [clojure.data.json :as json]
+    [clojure.stacktrace :refer [print-stack-trace]]
     [ernie.util :refer :all])
   (:import
     [com.fasterxml.jackson.databind ObjectMapper]

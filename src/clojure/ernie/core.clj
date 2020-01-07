@@ -1,27 +1,23 @@
 (ns ernie.core
   (:require
     [instaparse.core :as insta]
-    [eftest.runner :as ef]
     [ernie.fns :as fns]
     [ernie.parser :refer [parse]]
     [ernie.semantics :as semantics]
-    [ernie.util :refer :all]
     [ernie.report.junit :as junit]
-    [clojure.pprint :refer [pprint]]
     [clojure.java.io :as io]))
 
-(def base-ns (atom {:cases fns/namespace}))
+(def base-ns (atom fns/namespace))
 
 (defn run
-  [{:keys [namespace suites]} script]
+  [{:keys [namespace suites components]} script]
   (let [expressions (parse script)]
     (if (insta/failure? expressions)
       (do (println expressions
            expressions))
       (semantics/eval|expressions
-        (merge-with merge
-                    @base-ns namespace)
-        suites expressions))))
+        (merge @base-ns namespace)
+        components suites expressions))))
 
 (defn suite-report-file-name
   [base-dir suite]
