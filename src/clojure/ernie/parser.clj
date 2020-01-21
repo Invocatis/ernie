@@ -7,35 +7,36 @@
 (def grammar
   (insta/parser
     "
-      root := (block | def | call | INVOKE action)*
+      root := (block | def | call | INVOKE action | body)*
 
-      def := <'def'> name ASSIGN expression
+      def := <'def'> name ASSIGN? expression
 
       <expression> := value | compound | access | symbol
                     | call | action | metadata-access | method-call
-                    | fn
+                    | fn | body
 
       block := name name body
       body := OCB (bind | call | action | block)* expression? CCB
 
-      fn := formals SQUID body
+      fn := formals SQUID (body | expression)
 
       metadata := METADATA map
 
       metadata-access := METADATA name
 
 
-      call := name actuals
+      call := expression actuals
 
-      formals := OP name* CP
+      formals := OP (name COMMA)* name? CP
 
-      actuals := map | list
+      actuals := ordinal-params | nominal-params
+
+      ordinal-params := OP (expression COMMA)* expression? CP
+      nominal-params := OP OP (name-value COMMA)* name-value? CP CP
 
       bind := name ASSIGN expression
 
-      action := INVOKE name list
-
-      name-value-params := name-value*
+      action := INVOKE name ordinal-params
 
       name-value := name ASSIGN (expression | same)
                   | symbol
@@ -53,9 +54,8 @@
       value := string | integer | decimal | nothing
 
       (* Data Types *)
-      map := OCB name-value-params CCB
-           | OB name-value-params CB
-      list := OP expression* CP
+      map := OCB (name-value COMMA)* name-value? CCB
+      list := OB (expression COMMA)* expression? CB
       string := SQUOTE squote-string-char* SQUOTE
               | DQUOTE dquote-string-char* DQUOTE
       integer := #'[0-9]+'
@@ -84,6 +84,7 @@
       <CCB> := <'}'>
 
       <PERIOD> := '.'
+      <COMMA> := <','>
 
       <DQUOTE> := <'\"'>
       <SQUOTE> := <'\\''>
@@ -94,7 +95,7 @@
 
       <SQUID> := <'=>'>
     "
-    :auto-whitespace :comma))
+    :auto-whitespace :standard))
 
 (defn name-value
   ([[_ n]] [:pair n [:symbol n]])
@@ -108,10 +109,11 @@
   {:root vector
    :formals (partial conj [:list])
    :actuals identity
-   :ordered-params vector
+   :ordinal-params #(into [:list] %&)
+   :nominal-params #(into [:map] %&)
    :name-value-params vector
    :name-value name-value
-   :map (partial into [:map])
+   :map #(into [:map] %&)
    :list (partial conj [:list])
    :success (fn [& _] [:value :success])
    :failure (fn [& _] [:value :failure])

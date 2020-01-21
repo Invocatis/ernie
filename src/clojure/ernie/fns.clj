@@ -5,11 +5,12 @@
   (:refer-clojure :exclude [namespace]))
 
 (def control-flow-fns
-  {:do #(do %&)})
+  {:do #(do %&)
+   :try #(try %1 %2)})
 
 (def boolean-fns
-  {:and #(and %&)
-   :or #(and %&)
+  {:and #(if (every? identity %&) (last %&) (first (filter (complement identity) %&)))
+   :or #(some identity %&)
    :not not})
 
 (def comparison-fns
@@ -35,7 +36,15 @@
    :foreach (comp doall map)
    :first first
    :last last
-   :nth nth})
+   :nth nth
+   :repeat repeat
+   :repeatedly repeatedly
+   :take take
+   :drop drop
+   :range range
+   :pmap pmap
+   :doall doall
+   :count count})
 
 (def math-fns
   {:+ +
@@ -56,7 +65,7 @@
   {:objectToEdn ernie.util/object->edn})
 
 (def time-fns
-  {:now #(.format (new java.text.SimpleDateFormat "MM-dd-yyyy HH:mm:ss")
+  {:now #(.format (new java.text.SimpleDateFormat "MM-dd-yyyy__HH:mm:ss")
                   (new java.util.Date))})
 
 (def set-fns
@@ -65,6 +74,12 @@
    :union set/union
    :intersection set/intersection
    :remove disj})
+
+(def fn-fns
+  {:partial partial})
+
+(def parallel-fns
+  {:parallel (fn [fs] (pmap #(apply % []) fs))})
 
 (def namespace
   (merge
@@ -78,4 +93,6 @@
     assert-fns
     object-fns
     time-fns
-    set-fns))
+    set-fns
+    fn-fns
+    parallel-fns))

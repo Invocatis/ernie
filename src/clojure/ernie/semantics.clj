@@ -76,11 +76,10 @@
     (shutdown/remove-hook! (keyword ns (str name)))
     (shutdown/add-hook!
       (keyword ns (str name))
-      #(do (println components)
-        (when-not (or (instance? clojure.lang.Var$Unbound components)
-                      (empty? components))
+      #(when-not (or (instance? clojure.lang.Var$Unbound components)
+                     (empty? components))
          (log/info "INTERRUPT! STARTING CLEANUP")
-         (cleanup components @ex))))
+         (cleanup components @ex)))
     ex))
 
 (defn ->suite
@@ -212,33 +211,33 @@
             (cleanup components @executed)))))))
 
 (defn eval|call
-  [stack [name actuals :as exp]]
+  [stack [f actuals :as exp]]
   (log/tracef "Call: %s%s" name actuals)
-  (if-let [f (or (get @namespace (keyword name)) (get @environment (keyword name)))]
-    (if (fn? f)
-      (if (map? actuals)
-        (let [formals (-> f meta :formals)]
-          (apply f (into [] (map #(get actuals %) formals))))
-        (apply f actuals))
-      (throw (Exception. (format "Type %s cannot be invoked as a function" (type f)))))
-    (throw (Exception. (format "Symbol %s Undefined" name)))))
+  (if (fn? f)
+    (if (map? actuals)
+      (let [formals (-> f meta :formals)]
+        (apply f (into [] (map #(get actuals %) formals))))
+      (apply f actuals))
+    (throw (Exception. (format "Type %s cannot be invoked as a function" (type f))))))
 
 (defn eval|body
   [stack [& body]]
   (last body))
 
 (defn ->fn
-  [stack formals body]
-  ^{:arity #{(count formals)}
-    :formals formals}
-  (fn [& args]
-    (binding [environment (atom (zipmap formals args))]
-      (eval|exp stack body))))
+  [namespace stack formals body]
+  (let [environment @environment]
+    ^{:arity #{(count formals)}
+      :formals formals}
+    (fn [& args]
+      (binding [environment (atom (merge environment (zipmap formals args)))
+                namespace namespace]
+        (eval|exp stack body)))))
 
 (defn eval|fn
   [stack [formals body :as case]]
   (let [formals (eval|exp stack formals)]
-    (->fn stack formals body)))
+    (->fn namespace stack formals body)))
 
 (defn eval|list
   [stack [& vals]]
@@ -254,7 +253,6 @@
 
 (defn eval|symbol
   [stack [v :as exp]]
-  (def n @namespace)
   (if (= v "nothing")
     nil
     (if-let [[_ v] (or (find @environment v)
@@ -341,18 +339,17 @@
 
 (defn eval|exp
   [stack exp]
-  ; (println (apply str (repeat @indent \-)) exp)
-  ; (swap! indent inc)
+  (swap! indent inc)
   (let [result
          (let [[op & args :as exp] exp]
            (log/trace "EXP: %s" exp)
-           (if-let [f (and (#{:action :call} op) (special? (keyword (second (first args)))))]
+           (if-let [f (and (#{:action :call} op) (special? (keyword (second (second (first args))))))]
              (apply f [stack exp])
              (let [result (eval|args stack exp)]
                (if-let [f (get dispatch-map op)]
                  (apply f [(conj stack exp) result])
                  (throw (new Exception (format "Unexpected Operation: %s" op)))))))]
-    ; (swap! indent dec)
+    (swap! indent dec)
     result))
 
 (defn eval|expressions*
