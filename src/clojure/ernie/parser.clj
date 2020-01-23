@@ -39,7 +39,7 @@
       ordinal-params := OP ows (expression ws)* expression? ows CP
       nominal-params := OP OP ows (name-value ws)* name-value? ows CP CP
 
-      bind := name ows ASSIGN ows expression
+      bind := name ows <'='> ows expression
 
       action := INVOKE ows name ows ordinal-params
 
@@ -60,7 +60,7 @@
 
       (* Data Types *)
       map := OCB ows (map-element ows)* map-element? ows CCB
-      map-element := name ASSIGN (same | expression)
+      map-element := name ows ASSIGN ows (same | expression)
 
       list := OB (expression ows)* expression? CB
       string := SQUOTE squote-string-char* SQUOTE
@@ -71,7 +71,7 @@
 
       (* Simples *)
       <character> := #'[a-zA-Z]'
-      word := #'[^{}\\[\\]()\"\\'!:#\\s,.0-9]'#'[^{}\\[\\]()\"\\'!:#\\s.,]*'
+      word := #'[^%{}\\[\\]()\"\\'!:#\\s,.0-9]'#'[^{}\\[\\]()\"\\'!:#\\s.,]*'
       <word-char> := character | #'[+\\-*/]'
       <squote-string-char> := #'[^\\']'
       <dquote-string-char> := #'[^\"]'
@@ -122,6 +122,7 @@
    :nominal-params #(into [:map] %&)
    :name-value-params vector
    :name-value name-value
+   :map-element name-value
    :map #(into [:map] %&)
    :list (partial conj [:list])
    :success (fn [& _] [:value :success])
