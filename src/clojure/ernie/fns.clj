@@ -10,56 +10,30 @@
 
 (def boolean-fns
   {:and #(if (every? identity %&) (last %&) (first (filter (complement identity) %&)))
-   :or #(some identity %&)
-   :not not})
+   :or #(some identity %&)})
 
 (def comparison-fns
-  {:less <
-   :greater >
-   :lessEq <=
-   :greaterEq >=
-   :eq =
-   :neq not=})
+  {})
 
 (def string-fns
-  {:str str
-   :format format
-   :match (fn [re s] (re-matches (java.util.regex.Pattern/compile re) s))
+  {:match (fn [re s] (re-matches (java.util.regex.Pattern/compile re) s))
    :split (fn [re s] (clojure.string/split s (java.util.regex.Pattern/compile re)))
-   :last-index-of clojure.string/last-index-of
    :substring subs})
 
 (def seq-fns
   {:map mapv
    :filter filterv
    :reduce reduce
-   :foreach (comp doall map)
-   :first first
-   :last last
-   :nth nth
-   :repeat repeat
-   :repeatedly repeatedly
-   :take take
-   :drop drop
-   :range range
-   :pmap pmap
-   :doall doall
-   :count count})
+   :foreach (comp doall map)})
 
 (def math-fns
-  {:+ +
-   :- -
-   :/ /
-   :* *
-   :mod mod})
+  {})
 
 (def io-fns
-  {:println println
-   :print print
-   :read read})
+  {})
 
 (def assert-fns
-  {:assert (fn [v & [msg]] (assert v msg))})
+  {})
 
 (def object-fns
   {:objectToEdn ernie.util/object->edn})
@@ -69,19 +43,15 @@
                   (new java.util.Date))})
 
 (def set-fns
-  {:set set
-   :contains contains?
-   :union set/union
-   :intersection set/intersection
-   :remove disj})
+  {})
 
 (def fn-fns
-  {:partial partial})
+  {})
 
 (def parallel-fns
   {:parallel (fn [fs] (pmap #(apply % []) fs))})
 
-(def namespace
+(def namespace*
   (merge
     control-flow-fns
     boolean-fns
@@ -96,3 +66,10 @@
     set-fns
     fn-fns
     parallel-fns))
+
+(defn all-of-ns
+  [ns]
+  (let [public-vals (-> ns ns-publics vals)]
+    (into {}
+      (map (fn [v] [(-> v meta :name keyword) @v])
+           (filter (fn [v] (fn? @v)) public-vals)))))

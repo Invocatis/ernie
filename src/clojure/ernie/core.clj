@@ -7,7 +7,10 @@
     [ernie.report.junit :as junit]
     [clojure.java.io :as io]))
 
-(def base-ns (atom fns/namespace))
+(def base-ns (atom (merge (fns/all-of-ns 'clojure.core)
+                          (fns/all-of-ns 'clojure.string)
+                          (fns/all-of-ns 'clojure.set)
+                          fns/namespace*)))
 
 (defn run
   [{:keys [namespace suites components]} script]

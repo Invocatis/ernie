@@ -7,38 +7,43 @@
 (def grammar
   (insta/parser
     "
-      root := (block | def | call | INVOKE action | body)*
+      root := ows (root-element ows)* ows
 
-      def := <'def'> name ASSIGN? expression
+      <root-element> := (block | def | call | INVOKE action | body)*
+
+      def := <'def'> ws name (ows ASSIGN ows)? ows  expression
 
       <expression> := value | compound | access | symbol
                     | call | action | metadata-access | method-call
-                    | fn | body
+                    | fn | body | block
 
-      block := name name body
-      body := OCB (bind | call | action | block)* expression? CCB
+      block := name ws name ows body
+      body := OCB ows ((body-element ows)+ expression? |
+                       (body-element ows)* expression)
+              ows CCB
 
-      fn := formals SQUID (body | expression)
+      <body-element> := bind | call | action | block
+
+      fn := formals ows SQUID ows (body | expression)
 
       metadata := METADATA map
 
       metadata-access := METADATA name
 
+      call := expression ows actuals
 
-      call := expression actuals
-
-      formals := OP (name COMMA)* name? CP
+      formals := OP ows (name COMMA)* name? ows CP
 
       actuals := ordinal-params | nominal-params
 
-      ordinal-params := OP (expression COMMA)* expression? CP
-      nominal-params := OP OP (name-value COMMA)* name-value? CP CP
+      ordinal-params := OP ows (expression ws)* expression? ows CP
+      nominal-params := OP OP ows (name-value ws)* name-value? ows CP CP
 
       bind := name ASSIGN expression
 
       action := INVOKE name ordinal-params
 
-      name-value := name ASSIGN (expression | same)
+      name-value := name ows ASSIGN ows (expression | same)
                   | symbol
 
       same := <'%'>
@@ -54,8 +59,10 @@
       value := string | integer | decimal | nothing
 
       (* Data Types *)
-      map := OCB (name-value COMMA)* name-value? CCB
-      list := OB (expression COMMA)* expression? CB
+      map := OCB ows (map-element ows)* map-element? ows CCB
+      map-element := name ASSIGN (same | expression)
+
+      list := OB (expression ows)* expression? CB
       string := SQUOTE squote-string-char* SQUOTE
               | DQUOTE dquote-string-char* DQUOTE
       integer := #'[0-9]+'
@@ -94,8 +101,10 @@
       <METADATA> := <'^'>
 
       <SQUID> := <'=>'>
-    "
-    :auto-whitespace :standard))
+
+      <ws> := <#'(\\s|,)+'>
+      <ows> := <#'(\\s|,)*'>
+    "))
 
 (defn name-value
   ([[_ n]] [:pair n [:symbol n]])
