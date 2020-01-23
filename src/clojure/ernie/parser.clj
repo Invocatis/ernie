@@ -9,9 +9,9 @@
     "
       root := ows (root-element ows)* ows
 
-      <root-element> := (block | def | call | INVOKE action | body)*
+      <root-element> := (block | def | call | action | body)*
 
-      def := <'def'> ws name (ows ASSIGN ows)? ows  expression
+      def := <'def'> ws name (ows ASSIGN ows)? ows expression
 
       <expression> := value | compound | access | symbol
                     | call | action | metadata-access | method-call
@@ -32,16 +32,16 @@
 
       call := expression ows actuals
 
-      formals := OP ows (name COMMA)* name? ows CP
+      formals := OP ows (name ws)* name? ows CP
 
       actuals := ordinal-params | nominal-params
 
       ordinal-params := OP ows (expression ws)* expression? ows CP
       nominal-params := OP OP ows (name-value ws)* name-value? ows CP CP
 
-      bind := name ASSIGN expression
+      bind := name ows ASSIGN ows expression
 
-      action := INVOKE name ordinal-params
+      action := INVOKE ows name ows ordinal-params
 
       name-value := name ows ASSIGN ows (expression | same)
                   | symbol
