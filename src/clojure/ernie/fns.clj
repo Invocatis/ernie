@@ -5,8 +5,7 @@
   (:refer-clojure :exclude [namespace]))
 
 (def control-flow-fns
-  {:do #(do %&)
-   :try #(try %1 %2)})
+  {:do #(do %&)})
 
 (def boolean-fns
   {:and #(if (every? identity %&) (last %&) (first (filter (complement identity) %&)))

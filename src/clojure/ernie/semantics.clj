@@ -323,7 +323,15 @@
     (when f
       (eval|exp stack f))))
 
-(def special? {:if eval|if})
+(defn eval|try
+  [stack [_ _ [_ t c]]]
+  (try
+    (eval|exp stack t)
+    (catch Exception e (eval|exp stack c))
+    (catch java.lang.AssertionError e (eval|exp stack c))))
+
+(def special? {:if eval|if
+               :try eval|try})
 
 (defn eval*
   [stack vals]
