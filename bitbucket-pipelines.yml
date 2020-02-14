@@ -11,7 +11,4 @@ pipelines:
         script: # Modify the commands below to build your repository.
           - lein test
           - lein install
-    - step:
-            script:
-              - mvn -B clean install
-              - curl -X POST --user "${BB_AUTH_STRING}" "https://api.bitbucket.org/2.0/repositories/${BITBUCKET_REPO_OWNER}/${BITBUCKET_REPO_SLUG}/downloads" --form files=@"target/output.jar"
+              
