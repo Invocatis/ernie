@@ -1,4 +1,4 @@
-(defproject ernie "0.2.4-SNAPSHOT"
+(defproject ernie "0.2.6"
   :description "FIXME: write description"
 
   :repositories [["atlassian" {:id "atlassian"
@@ -11,7 +11,7 @@
                  [instaparse "1.4.10"]
                  [com.fasterxml.jackson.core/jackson-databind "2.10.0"]
                  [eftest "0.5.9"]
-                 [shutdown "0.1.0-SNAPSHOT"]]
+                 [garden "1.3.9"]]
   :main ^:skip-aot ernie.core
   :source-paths ["src/clojure"]
   :java-source-paths ["src/java"]

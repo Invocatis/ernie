@@ -4,8 +4,7 @@
     [ernie.log :as l]
     [taoensso.timbre :as log]
     [clojure.string :as string]
-    [clojure.test :refer [testing is]]
-    [shutdown.core :as shutdown])
+    [clojure.test :refer [testing is]])
   (:import
     [java.io ByteArrayOutputStream PrintStream StringWriter])
   (:refer-clojure :exclude [time namespace]))
@@ -55,7 +54,7 @@
     (apply verify-fn result actuals)))
 
 (defn cleanup
-  [namespace executed]
+  [components executed]
   (loop [executed executed]
     (if (empty? executed)
       nil
@@ -70,12 +69,16 @@
               (.printStackTrace e))))
         (recur (pop executed))))))
 
+(defn add-shutdown-hook
+  [hook]
+  (.addShutdownHook
+    (Runtime/getRuntime)
+    (Thread. hook)))
+
 (defn ->executed
   [components ns name]
   (let [ex (atom [])]
-    (shutdown/remove-hook! (keyword ns (str name)))
-    (shutdown/add-hook!
-      (keyword ns (str name))
+    (add-shutdown-hook
       #(when-not (or (instance? clojure.lang.Var$Unbound components)
                      (empty? components))
          (log/info "INTERRUPT! STARTING CLEANUP")

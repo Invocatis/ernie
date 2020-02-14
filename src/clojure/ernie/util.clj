@@ -2,13 +2,19 @@
   (:require
     [clojure.string :as string]
     [clojure.data.json :as json]
-    [clojure.stacktrace :refer [print-stack-trace]]
-    [ernie.util :refer :all])
+    [clojure.stacktrace :refer [print-stack-trace]])
   (:import
     [com.fasterxml.jackson.databind ObjectMapper]
     [java.io StringWriter]))
 
-(defn stacktrace-string
+(defn swap-lr!
+  [atom f left right]
+  (loop []
+    (let [orig @atom
+          result (f orig)]
+      (if (compare-and-set! atom orig (left result orig))
+        (right result)
+        (recur)))))(defn stacktrace-string
   [ex]
   (with-out-str (clojure.stacktrace/print-stack-trace ex)))
 
