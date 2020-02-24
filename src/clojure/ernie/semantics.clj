@@ -49,7 +49,7 @@
 (defn verify
   [target actuals result]
   (when-let [verify-fn (get-in components [:verify target])]
-    (log/infof "Verify: %s" target)
+    (log/debugf "Verify: %s" target)
     (log/debugf "Args: %s" (trunc (str actuals)  trunc-length))
     (apply verify-fn result actuals)))
 
@@ -61,12 +61,12 @@
       (let [{:keys [target args result]} (peek executed)
             clean (get-in components [:clean target])]
         (when clean
-          (log/infof "Clean: %s" target)
+          (log/debugf "Clean: %s" target)
           (log/debugf "Args: %s" (trunc (str args) trunc-length))
           (try
             (apply clean result args)
             (catch Exception e
-              (.printStackTrace e))))
+              (log/errorf "ERROR: %s\n%s" target (stacktrace e)))))
         (recur (pop executed))))))
 
 (defn add-shutdown-hook
@@ -81,7 +81,6 @@
     (add-shutdown-hook
       #(when-not (or (instance? clojure.lang.Var$Unbound components)
                      (empty? components))
-         (log/info "INTERRUPT! STARTING CLEANUP")
          (cleanup components @ex)))
     ex))
 
@@ -116,6 +115,7 @@
       (swap! executed conj {:result nil
                             :target target
                             :args actuals})
+      (log/errorf "ERROR: %s\n%s" target (stacktrace e))
       (throw e))))
 
 (defn eval|def
@@ -125,7 +125,7 @@
 
 (defn eval|action
   [stack [target actuals :as exp]]
-  (log/infof "Action: %s" target)
+  (log/debugf "Action: %s" target)
   (log/debugf "Args: %s" (trunc (str actuals) trunc-length))
   (if-let [action (get-in components [:action target])]
     (let [result (invoke-action target action actuals)]
@@ -161,25 +161,6 @@
           (cleanup components @executed)))
       true)))
 
-(defn failure-message
-  [e]
-  (if (nil? e)
-    ""
-    (let [sts (stacktrace-string e)
-          lines (take-while (complement
-                             #(or (string/includes? % "ernie")
-                                  (string/includes? % "clojure")))
-                      (string/split-lines sts))]
-      (if (empty? lines)
-        sts
-        (str
-          (apply str (interpose \newline lines))
-          \newline
-          "CAUSED BY:"
-          \newline
-          (failure-message (.getCause e))))
-      sts)))
-
 (defn handle-scenario
   [exp stack metadata statements]
   (let [test-name (symbol (str (get metadata "name" (name (gensym 'scenario)))))
@@ -194,8 +175,7 @@
       (update-summary! :pass inc)
       (catch java.lang.Throwable e
         (update-summary! :fail inc)
-        (log/error (failure-message e))
-        (report! {:type :fail :message (failure-message e)
+        (report! {:type :fail :message (stacktrace e)
                   :line (l/line-source exp)})))
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
@@ -256,8 +236,10 @@
 
 (defn eval|symbol
   [stack [v :as exp]]
-  (if (= v "nothing")
-    nil
+  (condp = v
+    "nothing" nil
+    "true" true
+    "false" false
     (if-let [[_ v] (or (find @environment v)
                        (find @namespace (keyword v)))]
       v

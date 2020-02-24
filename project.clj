@@ -10,11 +10,11 @@
                  [com.fzakaria/slf4j-timbre "0.3.16"]
                  [instaparse "1.4.10"]
                  [com.fasterxml.jackson.core/jackson-databind "2.10.0"]
-                 [eftest "0.5.9"]
-                 [garden "1.3.9"]]
+                 [garden "1.3.9"]
+                 [io.aviso/pretty "0.1.37"]]
   :main ^:skip-aot ernie.core
   :source-paths ["src/clojure"]
   :java-source-paths ["src/java"]
   :target-path "target/%s"
-  :aot [ernie.java]
+  :aot [ernie.java ernie.logger]
   :profiles {:uberjar {:aot :all}})

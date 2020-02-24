@@ -14,9 +14,30 @@
           result (f orig)]
       (if (compare-and-set! atom orig (left result orig))
         (right result)
-        (recur)))))(defn stacktrace-string
+        (recur)))))
+
+(defn stacktrace-string
   [ex]
   (with-out-str (clojure.stacktrace/print-stack-trace ex)))
+
+(defn stacktrace
+  [e]
+  (if (nil? e)
+    ""
+    (let [sts (stacktrace-string e)
+          lines (take-while (complement
+                             #(or (string/includes? % "ernie")
+                                  (string/includes? % "clojure")))
+                      (string/split-lines sts))]
+      (if (empty? lines)
+        sts
+        (str
+          (apply str (interpose \newline lines))
+          \newline
+          "CAUSED BY:"
+          \newline
+          (stacktrace (.getCause e))))
+      sts)))
 
 (defn success?
   [any]

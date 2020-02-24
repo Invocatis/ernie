@@ -1,6 +1,8 @@
 (ns ernie.fns
   (:require
     [clojure.set :as set]
+    [clojure.string :as string]
+    [taoensso.timbre :as log]
     [ernie.util])
   (:refer-clojure :exclude [namespace]))
 
@@ -50,6 +52,37 @@
 (def parallel-fns
   {:parallel (fn [fs] (pmap #(apply % []) fs))})
 
+(def sensitive (atom #{}))
+
+(defn mask-sensitive
+  [s]
+  (reduce (fn [acc sens] (string/replace acc sens (apply str (repeat (count sens) "*")))) s @sensitive))
+
+(def log-fns
+  {:log/info #(log/info (mask-sensitive %))
+   :log/warn #(log/warn (mask-sensitive %))
+   :log/error #(log/error (mask-sensitive %))
+   :log/debug #(log/debug (mask-sensitive %))
+   :log/infof #(log/infof (apply format (map mask-sensitive %&)))
+   :log/warnf #(log/warnf (apply format (map mask-sensitive %&)))
+   :log/errorf #(log/errorf (apply format (map mask-sensitive %&)))
+   :log/debugf #(log/debugf (apply format (map mask-sensitive %&)))
+   :log/level #(log/set-level! (keyword (mask-sensitive %)))
+   :log/markSensitive #(swap! sensitive conj (mask-sensitive %))
+   :log/appendToConsole #(if %
+                          (log/swap-config! assoc-in [:appenders :println :enabled] true)
+                          (log/swap-config! assoc-in [:appenders :println :enabled] false))
+   :log/appendToFile #(do
+                       (spit % nil)
+                       (log/swap-config! assoc-in [:appenders (keyword (str "file-" %))]
+                                         {:enabled? true
+                                          :async? false
+                                          :min-level nil
+                                          :rate-limit nil
+                                          :output-fn :inherit,
+                                          :fn (fn [{:keys [msg_]}] (spit % (str @msg_ \newline) :append true))}))})
+
+
 (def namespace*
   (merge
     control-flow-fns
@@ -64,7 +97,8 @@
     time-fns
     set-fns
     fn-fns
-    parallel-fns))
+    parallel-fns
+    log-fns))
 
 (defn all-of-ns
   [ns]
