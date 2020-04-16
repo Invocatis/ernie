@@ -2,6 +2,7 @@
   (:require
     [clojure.string :as string]
     [clojure.data.json :as json]
+    [io.aviso.exception :as avex]
     [clojure.stacktrace :refer [print-stack-trace]])
   (:import
     [com.fasterxml.jackson.databind ObjectMapper]
@@ -24,7 +25,7 @@
   [e]
   (if (nil? e)
     ""
-    (let [sts (stacktrace-string e)
+    (let [sts (stacktrace-string e);(avex/format-exception e)
           lines (take-while (complement
                              #(or (string/includes? % "ernie")
                                   (string/includes? % "clojure")))
@@ -36,8 +37,7 @@
           \newline
           "CAUSED BY:"
           \newline
-          (stacktrace (.getCause e))))
-      sts)))
+          (stacktrace (.getCause e)))))))
 
 (defn success?
   [any]
@@ -193,3 +193,40 @@
          (.invoke method obj (to-array (take (alength (.getParameters method)) args))))
        (catch java.lang.reflect.InvocationTargetException e
          (throw (.getCause e)))))))
+
+(defmacro bind-when
+  [condition binds & body]
+  `(if ~condition
+     (binding ~binds
+        ~@body)
+     (do ~@body)))
+
+(defmacro bind-unbound
+  [[b v :as bind] & body]
+  `(if (not (bound? (var ~b)))
+     (binding ~bind
+       ~@body)
+     (do ~@body)))
+
+
+(defn capt
+  [word]
+  (apply str (string/capitalize (first word)) (rest word)))
+
+
+(defn add-shutdown-hook
+  [hook]
+  (.addShutdownHook
+    (Runtime/getRuntime)
+    (Thread. hook)))
+
+(defn trunc
+  [s n]
+  (subs s 0 (min (count s) n)))
+
+(defmacro time-and-value
+  [expr]
+  `(let [start# (. System (nanoTime))
+         ret# ~expr]
+     {:time (/ (double (- (. System (nanoTime)) start#)) 1000000.0)
+      :value ret#}))

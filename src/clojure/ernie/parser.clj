@@ -7,15 +7,15 @@
 (def grammar
   (insta/parser
     "
-      root := ows (root-element ows)* ows
+      root := ows (root-element ws)* root-element ows
 
-      <root-element> := (block | def | call | action | body)*
+      <root-element> := (def | expression)
 
       def := <'def'> ws name (ows ASSIGN ows)? ows expression
 
       <expression> := value | compound | access | symbol
-                    | call | action | metadata-access | method-call
-                    | fn | body | block
+                    | call | action | metadata-access
+                    | fn | body | block | macro
 
       block := name ws name ows body
       body := OCB ows ((body-element ows)+ expression? |
@@ -25,6 +25,10 @@
       <body-element> := bind | call | action | block
 
       fn := formals ows SQUID ows (body | expression)
+          | OP fn CP
+
+      macro := OP formals CP ows SQUID ows (body | expression)
+             | OP macro CP
 
       metadata := METADATA map
 
@@ -32,7 +36,7 @@
 
       call := expression ows actuals
 
-      formals := OP ows (name ws)* name? ows CP
+      formals := OP ows (name ws)* name? CP
 
       actuals := ordinal-params | nominal-params
 
@@ -41,7 +45,7 @@
 
       bind := name ows <'='> ows expression
 
-      action := INVOKE ows name ows ordinal-params
+      action := (ws | beginning) INVOKE ows name ows ordinal-params
 
       name-value := name ows ASSIGN ows (expression | same)
                   | symbol
@@ -52,8 +56,6 @@
       name := word
 
       access := expression ACCESS name
-
-      method-call := expression ACCESS name list
 
       <compound> := map | list
       value := string | integer | decimal | nothing
@@ -71,7 +73,7 @@
 
       (* Simples *)
       <character> := #'[a-zA-Z]'
-      word := #'[^%{}\\[\\]()\"\\'!:#\\s,.0-9]'#'[^{}\\[\\]()\"\\'!:#\\s.,]*'
+      word := #'(?!def[{}\\[\\]()\"\\'!:#\\s.,])[^`%{}\\[\\]()\"\\'!:#\\s,.0-9][^{}\\[\\]()\"\\':#\\s.,]*'
       <word-char> := character | #'[+\\-*/]'
       <squote-string-char> := #'[^\\']'
       <dquote-string-char> := #'[^\"]'
@@ -90,7 +92,6 @@
       <OCB> := <'{'>
       <CCB> := <'}'>
 
-      <PERIOD> := '.'
       <COMMA> := <','>
 
       <DQUOTE> := <'\"'>
@@ -104,6 +105,7 @@
 
       <ws> := <#'(\\s|,)+'>
       <ows> := <#'(\\s|,)*'>
+      <beginning> := <#'^'>
     "))
 
 (defn name-value
@@ -131,7 +133,9 @@
    :decimal (comp #(Double. %) str)
    :string str
    :word str
-   :name (fn [x] [:value x])
+   :literal (fn [[_ x]] [:value (with-meta x {:type :literal})])
+   :noeval (fn [[_ x]] [:value (with-meta x {:type :noeval})])
+   :name (fn [x] [:value (symbol x)])
    :nothing (fn [& _] nil)
    :digit-str str})
 

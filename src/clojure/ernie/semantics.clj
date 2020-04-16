@@ -9,18 +9,35 @@
     [java.io ByteArrayOutputStream PrintStream StringWriter])
   (:refer-clojure :exclude [time namespace]))
 
+(defrecord Variardic
+  [name])
+
+(defn variardic?
+  [any]
+  (instance? Variardic any))
+
+; What actions have been executed
 (def ^:dynamic executed)
 
+; The path of the file being run, or "inline". For stacktrace purposes
+(def ^:dynamic file)
+
+; The script that is running, for line reporting purposes
 (def ^:dynamic script)
 
+; What suite we're running in, for test reporting
 (def ^:dynamic suite)
 
+; Values bound to symbols as in def
 (def ^:dynamic namespace)
 
+; Values bound to symbols as in = or function args
 (def ^:dynamic environment)
 
+; Map holding component
 (def ^:dynamic components)
 
+; What suites we have executed
 (def ^:dynamic suites)
 
 (declare eval|exp eval*)
@@ -33,47 +50,33 @@
   [v f & args]
   (swap! @(ns-resolve suite '_summary) update v #(apply f % args)))
 
-(defmacro time-and-value
-  [expr]
-  `(let [start# (. System (nanoTime))
-         ret# ~expr]
-     {:time (/ (double (- (. System (nanoTime)) start#)) 1000000.0)
-      :value ret#}))
-
-(def trunc-length 1000)
-
-(defn trunc
-  [s n]
-  (subs s 0 (min (count s) n)))
-
 (defn verify
   [target actuals result]
-  (when-let [verify-fn (get-in components [:verify target])]
-    (log/debugf "Verify: %s" target)
-    (log/debugf "Args: %s" (trunc (str actuals)  trunc-length))
-    (apply verify-fn result actuals)))
+  (try
+    (when-let [verify-fn (get-in components [:verify target])]
+      (log/debugf "Verify: %s" target)
+      (log/debugf "Args: %s" (str actuals))
+      (apply verify-fn result actuals))
+    (catch Throwable e
+      (log/errorf "ERROR: %s\n%s" target (stacktrace e))
+      (throw e))))
 
 (defn cleanup
   [components executed]
-  (loop [executed executed]
+  (loop [executed @executed]
     (if (empty? executed)
       nil
       (let [{:keys [target args result]} (peek executed)
             clean (get-in components [:clean target])]
         (when clean
           (log/debugf "Clean: %s" target)
-          (log/debugf "Args: %s" (trunc (str args) trunc-length))
+          (log/debugf "Args: %s" (str args))
           (try
             (apply clean result args)
             (catch Exception e
               (log/errorf "ERROR: %s\n%s" target (stacktrace e)))))
-        (recur (pop executed))))))
-
-(defn add-shutdown-hook
-  [hook]
-  (.addShutdownHook
-    (Runtime/getRuntime)
-    (Thread. hook)))
+        (recur (pop executed)))))
+  (reset! executed []))
 
 (defn ->executed
   [components ns name]
@@ -81,7 +84,7 @@
     (add-shutdown-hook
       #(when-not (or (instance? clojure.lang.Var$Unbound components)
                      (empty? components))
-         (cleanup components @ex)))
+         (cleanup components ex)))
     ex))
 
 (defn ->suite
@@ -126,7 +129,7 @@
 (defn eval|action
   [stack [target actuals :as exp]]
   (log/debugf "Action: %s" target)
-  (log/debugf "Args: %s" (trunc (str actuals) trunc-length))
+  (log/debugf "Args: %s" (str actuals))
   (if-let [action (get-in components [:action target])]
     (let [result (invoke-action target action actuals)]
       (verify target actuals result)
@@ -140,7 +143,7 @@
 
 (defn handle-suite
   [stack metadata statements]
-  (binding [suite (->suite (symbol (str (get metadata "name" (name (gensym 'suite))))))
+  (binding [suite (->suite (symbol (str (get metadata 'name (name (gensym 'suite))))))
             executed (var-get (ns-resolve suite '_executed))]
     (report! {:type :begin-test-run})
     (report! {:type :begin-test-ns :ns suite})
@@ -148,7 +151,7 @@
     (report! {:type :end-test-ns :ns suite})))
 
 (defn ->test-fn
-  [ns env ex stack {name "name"} statements]
+  [ns env ex stack {name 'name} statements]
   (fn []
     (binding [namespace (atom ns)
               environment (atom env)
@@ -158,12 +161,12 @@
         (catch java.lang.Throwable e
           (throw e))
         (finally
-          (cleanup components @executed)))
+          (cleanup components executed)))
       true)))
 
 (defn handle-scenario
   [exp stack metadata statements]
-  (let [test-name (symbol (str (get metadata "name" (name (gensym 'scenario)))))
+  (let [test-name (symbol (str (get metadata 'name (name (gensym 'scenario)))))
         test-fn (->test-fn @namespace (with-meta @environment metadata) executed stack metadata statements)]
     (intern suite (with-meta test-name {:test test-fn})
       (fn [] (clojure.test/test-var (resolve test-name))))
@@ -180,8 +183,8 @@
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
 (defn eval|block
-  [stack [[_ type] [_ name][_ & statements] :as exp]]
-  (let [metadata {"name" name}]
+  [stack [[_ type] [_ name] [_ & statements] :as exp]]
+  (let [metadata {'name (str name)}]
     (condp = (keyword type)
       :suite    (handle-suite    stack metadata (vec statements))
       :scenario (handle-scenario exp stack metadata (vec statements))
@@ -191,17 +194,55 @@
           (catch java.lang.Throwable e
             (throw e))
           (finally
-            (cleanup components @executed)))))))
+            (cleanup components executed)))))))
+
+
+(defn eval|if
+  [stack [_ _ [_ pred t f :as x]]]
+  (if (eval|exp stack pred)
+    (eval|exp stack t)
+    (when f
+      (eval|exp stack f))))
+
+(defn eval|try
+  [stack [_ _ [_ t c]]]
+  (try
+    (eval|exp stack t)
+    (catch Exception e (eval|exp stack c))
+    (catch java.lang.AssertionError e (eval|exp stack c))))
+
+(def special? {'if eval|if
+               'try eval|try})
 
 (defn eval|call
-  [stack [f actuals :as exp]]
-  (log/tracef "Call: %s%s" name actuals)
-  (if (fn? f)
-    (if (map? actuals)
-      (let [formals (-> f meta :formals)]
-        (apply f (into [] (map #(get actuals %) formals))))
-      (apply f actuals))
-    (throw (Exception. (format "Type %s cannot be invoked as a function" (type f))))))
+  [stack [_ f actuals :as exp]]
+  (log/tracef "Call: %s %s" f actuals)
+  (if-let [f (and (= :symbol (first f)) (-> f second second special?))]
+    (apply f [stack exp])
+    (let [f (eval|exp stack f)]
+      (if (fn? f)
+        (let [formals (-> f meta :formals)
+              actuals (if (-> f meta :macro)
+                        (map (comp :source meta) (rest actuals))
+                        (eval|exp stack actuals))
+              actuals (if (map? actuals)
+                         (mapv (fn [formal] (get actuals formal)) formals)
+                         actuals)
+              actuals (if formals
+                        (if (variardic? (last formals))
+                          (let [variardic (last formals)
+                                formals (or (butlast formals) [])
+                                vari-actuals (drop (count formals) actuals)
+                                actuals (take (count formals) actuals)]
+                            (conj
+                             (into [] actuals)
+                             (if (empty? vari-actuals)
+                               nil
+                               (into [] vari-actuals))))
+                          (into [] actuals))
+                        actuals)]
+          (apply f actuals))
+        (throw (Exception. (format "Type %s cannot be invoked as a function" (type f))))))))
 
 (defn eval|body
   [stack [& body]]
@@ -213,14 +254,23 @@
     ^{:arity #{(count formals)}
       :formals formals}
     (fn [& args]
-      (binding [environment (atom (merge environment (zipmap formals args)))
-                namespace namespace]
-        (eval|exp stack body)))))
+      (let [formals (if (variardic? (last formals)) (conj (pop formals) (:name (last formals))) formals)]
+        (binding [environment (atom (merge environment (zipmap formals args)))
+                  namespace namespace]
+          (eval|exp stack body))))))
 
 (defn eval|fn
-  [stack [formals body :as case]]
-  (let [formals (eval|exp stack formals)]
+  [stack [formals body]]
+  (let [formals (eval|exp stack formals)
+        formals (if (and (> (count formals) 1) (= '& (peek (pop formals))))
+                  (conj (pop (pop formals)) (->Variardic (peek formals)))
+                  formals)]
     (->fn namespace stack formals body)))
+
+(defn eval|macro
+  [stack [formals body]]
+  (let [f (eval|fn stack [formals body])]
+    (with-meta f (assoc (meta f) :macro true))))
 
 (defn eval|list
   [stack [& vals]]
@@ -237,9 +287,9 @@
 (defn eval|symbol
   [stack [v :as exp]]
   (condp = v
-    "nothing" nil
-    "true" true
-    "false" false
+    (symbol "nothing") nil
+    (symbol "true") true
+    (symbol "false") false
     (if-let [[_ v] (or (find @environment v)
                        (find @namespace (keyword v)))]
       v
@@ -248,10 +298,6 @@
 (defn eval|value
   [stack [v :as exp]]
   v)
-
-(defn capt
-  [word]
-  (apply str (string/capitalize (first word)) (rest word)))
 
 (defn java-get
   [target field]
@@ -264,19 +310,30 @@
              target
              (object-array 0))))
 
+(defn -get-method
+  [target method]
+  (first (filter #(= (name method) (.getName %)) (.getDeclaredMethods (class target)))))
+
+(defn method->fn
+  [target method]
+  (fn [& args]
+    (.invoke (-get-method target method) target (object-array args))))
+
+(defn field?
+  [target entity]
+  (some #(= (name entity) (.getName %)) (.getDeclaredFields (class target))))
+
+(defn method?
+  [target entity]
+  (some #(= (name entity) (.getName %)) (.getDeclaredMethods (class target))))
+
 (defn eval|access
   [stack [target entity :as exp]]
   (when target
     (cond
       (map? target) (get target entity)
-      :else (java-get target entity))))
-
-(defn eval|method-call
-  [stack [target method-name args]]
-  (when-not (nil? target)
-    (let [types (into-array java.lang.Class (map class args))
-          f (wrap-method (.getMethod (class target) (name method-name) types) target)]
-      (apply f args))))
+      (field? target entity) (java-get target entity)
+      (method? target entity) (method->fn target entity))))
 
 (defn eval|metadata-access
   [stack [sym]]
@@ -286,6 +343,7 @@
   {:block           eval|block
    :def             eval|def
    :fn              eval|fn
+   :macro           eval|macro
    :body            eval|body
    :call            eval|call
    :bind            eval|bind
@@ -296,27 +354,9 @@
    :symbol          eval|symbol
    :value           eval|value
    :access          eval|access
-   :method-call     eval|method-call
    :metadata-access eval|metadata-access})
 
-(def atomic? #{:value :fn :block})
-
-(defn eval|if
-  [stack [_ _ [_ pred t f :as x]]]
-  (if (eval|exp stack pred)
-    (eval|exp stack t)
-    (when f
-      (eval|exp stack f))))
-
-(defn eval|try
-  [stack [_ _ [_ t c]]]
-  (try
-    (eval|exp stack t)
-    (catch Exception e (eval|exp stack c))
-    (catch java.lang.AssertionError e (eval|exp stack c))))
-
-(def special? {:if eval|if
-               :try eval|try})
+(def atomic? #{:value :fn :block :macro})
 
 (defn eval*
   [stack vals]
@@ -328,22 +368,17 @@
     args
     (eval* stack args)))
 
-(def indent (atom 0))
-
 (defn eval|exp
   [stack exp]
-  (swap! indent inc)
-  (let [result
-         (let [[op & args :as exp] exp]
-           (log/trace "EXP: %s" exp)
-           (if-let [f (and (#{:action :call} op) (special? (keyword (second (second (first args))))))]
-             (apply f [stack exp])
-             (let [result (eval|args stack exp)]
-               (if-let [f (get dispatch-map op)]
-                 (apply f [(conj stack exp) result])
-                 (throw (new Exception (format "Unexpected Operation: %s" op)))))))]
-    (swap! indent dec)
-    result))
+  (log/trace "EXP:" exp)
+  (let [[op & args :as exp] exp
+        stack (conj stack (with-meta exp (assoc (meta exp) :file file)))]
+    (if (= op :call)
+      (eval|call stack exp)
+      (let [result (eval|args stack exp)]
+        (if-let [f (get dispatch-map op)]
+          (apply f [stack result])
+          (throw (new Exception (format "Unexpected Operation: %s" op))))))))
 
 (defn eval|expressions*
   [stack exps]
@@ -353,22 +388,7 @@
       (let [result (eval|exp stack (first exps))]
         (cons result (eval|expressions* stack (rest exps))))
       (finally
-        (cleanup @namespace @executed)
-        (reset! executed [])))))
-
-(defmacro bind-when
-  [condition binds & body]
-  `(if ~condition
-     (binding ~binds
-        ~@body)
-     (do ~@body)))
-
-(defmacro bind-unbound
-  [[b v :as bind] & body]
-  `(if (not (bound? (var ~b)))
-     (binding ~bind
-       ~@body)
-     (do ~@body)))
+        (cleanup @namespace executed)))))
 
 (defn sub
   [ns components suites' exps]

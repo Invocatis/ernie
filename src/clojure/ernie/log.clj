@@ -93,10 +93,8 @@
       (apply str (interpose "\t\t" trace))
       (let [exp (peek stack)]
         (if (contains? (meta exp) :instaparse.gll/start-line)
-          (let [line 1]
-            (if (= line (peek trace))
-              (recur (pop stack) trace)
-              (recur (pop stack) (conj trace line))))
+          (let [{:keys [instaparse.gll/start-line file]} (meta exp)]
+            (recur (pop stack) (conj trace (str "%s:%s" file start-line))))
           (recur (pop stack) trace))))))
 
 (defn stack-line

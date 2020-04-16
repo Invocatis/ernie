@@ -2,14 +2,19 @@
   "A test reporter that outputs JUnit-compatible XML."
   (:require
     [ernie.util :refer :all]
+    [ernie.report.util :refer :all]
     [clojure.data.xml :as xml]
     [clojure.string :as string]))
+
+(defn clean
+  [el]
+  (update el :message string/replace #"\n" "\\\\n"))
 
 (defn report-var-element
   [{:keys [type] :as el}]
   (condp = type
-    :fail (xml/element :failure (dissoc el :type))
-    :error (xml/element :error (dissoc el :type))
+    :fail (xml/element :failure (clean (dissoc el :type)))
+    :error (xml/element :error (clean (dissoc el :type)))
     nil))
 
 (defn report-var
@@ -19,21 +24,6 @@
      :classname (-> var meta :ns ns-name name)}
     (report-var-element value)))
 
-(defn ns->suitename
-  [ns]
-  (-> ns ns-name name
-      (string/split #"\.")
-      last))
-
-(defn ns->packagename
-  [ns]
-  (->>
-    (-> ns ns-name name
-        (string/split #"\.")
-        drop-last)
-    (interpose ".")
-    (apply str)))
-
 (defn report-ns
   [ns vars]
   (apply
@@ -42,18 +32,6 @@
               :package (ns->packagename ns)})
     (map (partial apply report-var) (sort-by #(-> % meta :name) vars))))
 
-(defn exception?
-  [v]
-  (instance? Exception v))
-
-(defn ex->str
-  [v]
-  (let [s (stacktrace-string v)]
-    (apply str s)))
-      ; (take-while
-      ;   (fn [s] (not (or (string/includes? s "ernie")
-      ;                    (string/includes? s "clojure"))))
-      ;   (string/split-lines s)))))
 
 (defn report
   [results]

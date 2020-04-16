@@ -59,7 +59,7 @@
   [type m]
   (let [annotations (seq (.getAnnotationsByType m type))]
     (->> annotations
-      (map (fn [a] [(.value a) (wrap-method m)]))
+      (map (fn [a] [(symbol (.value a)) (wrap-method m)]))
       (into {}))))
 
 (defn all-methods
@@ -101,8 +101,9 @@
 
 (defn run-file
   [this path]
-  (run-string this (slurp path))
-  nil)
+  (let [{:keys [namespace suites result]} (core/run @(.state this) (slurp path) path)]
+    (swap! (.state this) (partial merge-with merge) {:namespace namespace :suites suites})
+    result))
 
 (defn report
   ([this]

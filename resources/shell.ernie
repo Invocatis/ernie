@@ -1,0 +1,17 @@
+def var((cmd)) => {
+  if(and(=(str(first(cmd)), '$'), not(=(str(second(cmd)), ''))),
+    shell/var(apply(str, rest(cmd))),
+    cmd)
+}
+
+def shell/parsers atom({})
+
+def shell/customParser (cmd, f) => {
+  swap!(shell/parsers, (p) => assoc(p,cmd,f))
+}
+
+def $((& cmd)) => {
+  result = shell/exec(apply(str, interpose(' ', cmd)))
+  parser = get(deref(shell/parsers), first(cmd))
+  if(parser, parser(result), result)
+}

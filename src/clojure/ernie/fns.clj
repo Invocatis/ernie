@@ -2,9 +2,13 @@
   (:require
     [clojure.set :as set]
     [clojure.string :as string]
-    [taoensso.timbre :as log]
-    [ernie.util])
+    [ernie.util]
+    [ernie.logger :as log]
+    [ernie.semantics :as s])
   (:refer-clojure :exclude [namespace]))
+
+(def bootstrap-fns
+  {:if ()})
 
 (def control-flow-fns
   {:do #(do %&)})
@@ -52,23 +56,17 @@
 (def parallel-fns
   {:parallel (fn [fs] (pmap #(apply % []) fs))})
 
-(def sensitive (atom #{}))
-
-(defn mask-sensitive
-  [s]
-  (reduce (fn [acc sens] (string/replace acc sens (apply str (repeat (count sens) "*")))) s @sensitive))
-
 (def log-fns
-  {:log/info #(log/info (mask-sensitive %))
-   :log/warn #(log/warn (mask-sensitive %))
-   :log/error #(log/error (mask-sensitive %))
-   :log/debug #(log/debug (mask-sensitive %))
-   :log/infof #(log/infof (apply format (map mask-sensitive %&)))
-   :log/warnf #(log/warnf (apply format (map mask-sensitive %&)))
-   :log/errorf #(log/errorf (apply format (map mask-sensitive %&)))
-   :log/debugf #(log/debugf (apply format (map mask-sensitive %&)))
-   :log/level #(log/set-level! (keyword (mask-sensitive %)))
-   :log/markSensitive #(swap! sensitive conj (mask-sensitive %))
+  {:log/info log/-info
+   :log/warn log/-warn
+   :log/error log/-error
+   :log/debug log/-debug
+   :log/infof (comp log/-info format)
+   :log/warnf (comp log/-warn format)
+   :log/errorf (comp log/-error format)
+   :log/debugf (comp log/-debug format)
+   :log/level log/set-level!
+   :log/markSensitive log/mark-sensitive
    :log/appendToConsole #(if %
                           (log/swap-config! assoc-in [:appenders :println :enabled] true)
                           (log/swap-config! assoc-in [:appenders :println :enabled] false))
@@ -82,6 +80,15 @@
                                           :output-fn :inherit,
                                           :fn (fn [{:keys [msg_]}] (spit % (str @msg_ \newline) :append true))}))})
 
+
+(def shell-fns
+  {:shell/exec #(let [proc (.exec (Runtime/getRuntime) %)
+                      in (slurp (.getInputStream proc))
+                      err (slurp (.getErrorStream proc))]
+                  (if (or (empty? in) (empty? err))
+                    (str in err)
+                    (str in \newline err)))
+   :shell/var #(System/getenv %)})
 
 (def namespace*
   (merge
@@ -98,11 +105,12 @@
     set-fns
     fn-fns
     parallel-fns
-    log-fns))
+    log-fns
+    shell-fns))
 
 (defn all-of-ns
-  [ns]
+  [ns & [as]]
   (let [public-vals (-> ns ns-publics vals)]
     (into {}
-      (map (fn [v] [(-> v meta :name keyword) @v])
+      (map (fn [v] [(if as (->> v meta :name (str as "/") keyword) (-> v meta :name keyword)) @v])
            (filter (fn [v] (fn? @v)) public-vals)))))
