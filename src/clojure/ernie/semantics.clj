@@ -79,7 +79,7 @@
   (reset! executed []))
 
 (defn ->executed
-  [components ns name]
+  [components]
   (let [ex (atom [])]
     (add-shutdown-hook
       #(when-not (or (instance? clojure.lang.Var$Unbound components)
@@ -95,7 +95,7 @@
       (get @suites ns-name)
       (let [_ (remove-ns ns-name)
             ns (create-ns ns-name)]
-        (intern ns '_executed (->executed components "suite" name))
+        (intern ns '_executed (->executed components))
         (intern ns '_result (atom []))
         (intern ns '_summary (atom {:test 0 :pass 0 :fail 0 :error 0
                                     :type :summary :duration (System/nanoTime)}))
@@ -142,22 +142,22 @@
   nil)
 
 (defn handle-suite
-  [stack metadata statements]
+  [stack metadata body]
   (binding [suite (->suite (symbol (str (get metadata 'name (name (gensym 'suite))))))
             executed (var-get (ns-resolve suite '_executed))]
     (report! {:type :begin-test-run})
     (report! {:type :begin-test-ns :ns suite})
-    (eval* stack statements)
+    (eval|exp stack body)
     (report! {:type :end-test-ns :ns suite})))
 
 (defn ->test-fn
-  [ns env ex stack {name 'name} statements]
+  [ns env ex stack {name 'name} body]
   (fn []
     (binding [namespace (atom ns)
               environment (atom env)
-              executed (->executed components "scenario" name)]
+              executed (->executed components)]
       (try
-        (eval* stack statements)
+        (eval|exp stack body)
         (catch java.lang.Throwable e
           (throw e))
         (finally
@@ -165,9 +165,9 @@
       true)))
 
 (defn handle-scenario
-  [exp stack metadata statements]
+  [exp stack metadata body]
   (let [test-name (symbol (str (get metadata 'name (name (gensym 'scenario)))))
-        test-fn (->test-fn @namespace (with-meta @environment metadata) executed stack metadata statements)]
+        test-fn (->test-fn @namespace (with-meta @environment metadata) executed stack metadata body)]
     (intern suite (with-meta test-name {:test test-fn})
       (fn [] (clojure.test/test-var (resolve test-name))))
     (report! {:type :begin-test-var :var (ns-resolve suite test-name)})
@@ -182,20 +182,24 @@
                   :line (l/line-source exp)})))
     (report! {:type :end-test-var :var (ns-resolve suite test-name)})))
 
+
 (defn eval|block
-  [stack [[_ type] [_ name] [_ & statements] :as exp]]
+  [stack [type name body :as exp]]
   (let [metadata {'name (str name)}]
     (condp = (keyword type)
-      :suite    (handle-suite    stack metadata (vec statements))
-      :scenario (handle-scenario exp stack metadata (vec statements))
-      (binding [executed (->executed components "block" "name")]
-        (try
-          (eval* stack statements)
-          (catch java.lang.Throwable e
-            (throw e))
-          (finally
-            (cleanup components executed)))))))
+      :suite    (handle-suite    stack metadata body)
+      :scenario (handle-scenario exp stack metadata body)
+      (eval|exp stack (with-meta body metadata)))))
 
+(defn eval|body
+  [stack [& statements :as exp]]
+  (binding [executed (->executed components)]
+    (try
+      (last (eval* stack statements))
+      (catch java.lang.Throwable e
+        (throw e))
+      (finally
+        (cleanup components executed)))))
 
 (defn eval|if
   [stack [_ _ [_ pred t f :as x]]]
@@ -244,9 +248,6 @@
           (apply f actuals))
         (throw (Exception. (format "Type %s cannot be invoked as a function" (type f))))))))
 
-(defn eval|body
-  [stack [& body]]
-  (last body))
 
 (defn ->fn
   [namespace stack formals body]
@@ -356,7 +357,7 @@
    :access          eval|access
    :metadata-access eval|metadata-access})
 
-(def atomic? #{:value :fn :block :macro})
+(def atomic? #{:value :fn :block :body :macro})
 
 (defn eval*
   [stack vals]
@@ -393,7 +394,7 @@
 (defn sub
   [ns components suites' exps]
   (binding [namespace (atom ns)
-            executed (->executed components "sub" (ns-name suite))
+            executed (->executed components)
             environment (atom {})]
     (let [result (eval|expressions* [] exps)]
       {:namespace @namespace

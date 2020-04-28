@@ -9,12 +9,12 @@
     "
       root := ows (root-element ws)* root-element ows
 
-      <root-element> := (def | expression)
+      <root-element> := (block | def | call | action | body | expression)*
 
       def := <'def'> ws name (ows ASSIGN ows)? ows expression
 
       <expression> := value | compound | access | symbol
-                    | call | action | metadata-access
+                    | call | action | metadata-access | method-call
                     | fn | body | block | macro
 
       block := name ws name ows body
@@ -56,6 +56,8 @@
       name := word
 
       access := expression ACCESS name
+
+      method-call := expression ACCESS name list
 
       <compound> := map | list
       value := string | integer | decimal | nothing
