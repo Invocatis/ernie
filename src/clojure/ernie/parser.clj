@@ -9,22 +9,29 @@
     "
       root := ows (root-element ws)* root-element ows
 
-      <root-element> := (block | def | call | action | body | expression)*
+      <root-element> := (block | def | call | action | scope | expression)*
 
       def := <'def'> ws name (ows ASSIGN ows)? ows expression
 
       <expression> := value | compound | access | symbol
                     | call | action | metadata-access | method-call
-                    | fn | body | block | macro
+                    | fn | scope | macro
 
-      block := name ws name ows body
+      <fn-expression> := value | compound | access | symbol
+                    | call | action | metadata-access | method-call
+                    | fn | body | macro
+
+      block := (name ws name ows)? scope
+
+      scope := body
+
       body := OCB ows ((body-element ows)+ expression? |
                        (body-element ows)* expression)
               ows CCB
 
       <body-element> := bind | call | action | block
 
-      fn := formals ows SQUID ows (body | expression)
+      fn := formals ows SQUID ows (body | fn-expression)
           | OP fn CP
 
       macro := OP formals CP ows SQUID ows (body | expression)

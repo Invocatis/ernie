@@ -151,7 +151,7 @@
     (report! {:type :end-test-ns :ns suite})))
 
 (defn ->test-fn
-  [ns env ex stack {name 'name} body]
+  [ns env ex stack body]
   (fn []
     (binding [namespace (atom ns)
               environment (atom env)
@@ -167,7 +167,7 @@
 (defn handle-scenario
   [exp stack metadata body]
   (let [test-name (symbol (str (get metadata 'name (name (gensym 'scenario)))))
-        test-fn (->test-fn @namespace (with-meta @environment metadata) executed stack metadata body)]
+        test-fn (->test-fn @namespace (with-meta @environment metadata) executed stack body)]
     (intern suite (with-meta test-name {:test test-fn})
       (fn [] (clojure.test/test-var (resolve test-name))))
     (report! {:type :begin-test-var :var (ns-resolve suite test-name)})
@@ -184,22 +184,27 @@
 
 
 (defn eval|block
-  [stack [type name body :as exp]]
-  (let [metadata {'name (str name)}]
+  [stack exp]
+  (let [[body [_ name] [_ type]] (reverse exp)
+        metadata {'name (str name)}]
     (condp = (keyword type)
       :suite    (handle-suite    stack metadata body)
       :scenario (handle-scenario exp stack metadata body)
       (eval|exp stack (with-meta body metadata)))))
 
-(defn eval|body
-  [stack [& statements :as exp]]
+(defn eval|scope
+  [stack [body :as exp]]
   (binding [executed (->executed components)]
     (try
-      (last (eval* stack statements))
+      (eval|exp stack body)
       (catch java.lang.Throwable e
         (throw e))
       (finally
         (cleanup components executed)))))
+
+(defn eval|body
+  [stack [& statements :as exp]]
+  (last (eval* stack statements)))
 
 (defn eval|if
   [stack [_ _ [_ pred t f :as x]]]
@@ -342,6 +347,7 @@
 
 (def dispatch-map
   {:block           eval|block
+   :scope           eval|scope
    :def             eval|def
    :fn              eval|fn
    :macro           eval|macro
@@ -357,7 +363,7 @@
    :access          eval|access
    :metadata-access eval|metadata-access})
 
-(def atomic? #{:value :fn :block :body :macro})
+(def atomic? #{:value :fn :block :scope :body :macro})
 
 (defn eval*
   [stack vals]
